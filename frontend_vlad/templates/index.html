@@ -62,15 +62,18 @@
         // Create the game board immediately
         function createGameBoard() {
             const gameBoard = document.getElementById('gameBoard');
-            gameBoard.innerHTML = ''; // Clear any existing content
-            for (let i = 0; i < 36; i++) {
-                const cell = document.createElement('div');
-                cell.className = 'cell';
-                cell.dataset.index = i;
-                cell.textContent = ''; // Optional: add some content to see the cells
-                gameBoard.appendChild(cell);
+            gameBoard.innerHTML = '';
+            for (let y = 0; y < 6; y++) {
+                for (let x = 0; x < 6; x++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.x = x;
+                    cell.dataset.y = y;
+                    cell.textContent = '';
+                    gameBoard.appendChild(cell);
+                }
             }
-            console.log('Game board created with 36 cells'); // Updated debug log
+            console.log('Game board created with 6x6 grid');
         }
 
         // Call createGameBoard immediately
@@ -94,16 +97,18 @@ ${python_code}
         document.querySelectorAll('.cell').forEach(cell => {
             cell.addEventListener('click', function() {
                 this.classList.toggle('selected');
-                console.log('Selected square index:', this.dataset.index);
+                const position = {
+                    x: parseInt(this.dataset.x),
+                    y: parseInt(this.dataset.y)
+                };
+                console.log('Selected position:', position);
                 
                 fetch('/play', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({
-                        index: this.dataset.index
-                    })
+                    body: JSON.stringify(position)
                 });
             });
         });
