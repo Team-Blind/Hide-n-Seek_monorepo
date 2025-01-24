@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hide and Seek Game</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.22.1/full/pyodide.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .game-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 80px);
+            gap: 4px;
+            margin: 20px auto;
+            width: fit-content;
+            background-color: #ddd;
+            padding: 4px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .cell {
+            width: 80px;
+            height: 80px;
+            background-color: #ffffff;
+            border: 1px solid #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        .cell:hover {
+            background-color: #f8f8f8;
+            transform: scale(1.02);
+        }
+        .hider {
+            background-color: #ffcccb;
+            border-color: #ffb3b3;
+        }
+        .seeker {
+            background-color: #90ee90;
+            border-color: #7ed17e;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center mb-4">Hide and Seek Game</h1>
+        <div id="gameBoard" class="game-grid mx-auto"></div>
+        <div class="text-center">
+            <p id="gameStatus" class="mb-3">Hider, choose your position!</p>
+            <button id="resetBtn" class="btn btn-primary" style="display: none;">Play Again</button>
+        </div>
+    </div>
+    <script>
+        // Create the game board immediately
+        function createGameBoard() {
+            const gameBoard = document.getElementById('gameBoard');
+            gameBoard.innerHTML = ''; // Clear any existing content
+            for (let i = 0; i < 36; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.dataset.index = i;
+                cell.textContent = ''; // Optional: add some content to see the cells
+                gameBoard.appendChild(cell);
+            }
+            console.log('Game board created with 36 cells'); // Updated debug log
+        }
+
+        // Call createGameBoard immediately
+        createGameBoard();
+
+        async function main() {
+            // Create board again just in case
+            createGameBoard();
+            
+            let pyodide = await loadPyodide();
+            await pyodide.loadPackage("micropip");
+            const micropip = pyodide.pyimport("micropip");
+            await micropip.install('pycryptodome');
+            await pyodide.runPythonAsync(`
+${python_code}
+            `);
+        }
+        main();
+    </script>
+</body>
+</html>
