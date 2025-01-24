@@ -44,6 +44,9 @@
             background-color: #90ee90;
             border-color: #7ed17e;
         }
+        .selected {
+            background-color: blue !important;
+        }
     </style>
 </head>
 <body>
@@ -86,6 +89,24 @@ ${python_code}
             `);
         }
         main();
+
+        // Add click handler for the existing game grid
+        document.querySelectorAll('.cell').forEach(cell => {
+            cell.addEventListener('click', function() {
+                this.classList.toggle('selected');
+                console.log('Selected square index:', this.dataset.index);
+                
+                fetch('/play', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        index: this.dataset.index
+                    })
+                });
+            });
+        });
     </script>
 </body>
 </html>
