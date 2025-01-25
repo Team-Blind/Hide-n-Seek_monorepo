@@ -4,184 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hide and Seek Game</title>
-    <script src="https://cdn.jsdelivr.net/pyodide/v0.22.1/full/pyodide.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .game-grid {
-            display: grid;
-            grid-template-columns: repeat(6, 80px);
-            gap: 4px;
-            margin: 20px auto;
-            width: fit-content;
-            background-color: #ddd;
-            padding: 4px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-        }
-        .cell {
-            width: 80px;
-            height: 80px;
-            background-color: #ffffff;
-            border: 1px solid #ccc;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            cursor: pointer;
-            transition: all 0.3s;
-            border-radius: 4px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        }
-        .cell:hover {
-            background-color: #f8f8f8;
-            transform: scale(1.02);
-        }
-        .hider {
-            background-color: #90ee90 !important;
-            border-color: #7ed17e;
-        }
-        .seeker {
-            background-color: #ffcccb !important;
-            border-color: #ffb3b3;
-        }
-        .selected {
-            background-color: blue !important;
-        }
-    </style>
 </head>
 <body>
     <div class="container mt-5">
         <h1 class="text-center mb-4">Hide and Seek Game</h1>
-        <div id="gameBoard" class="game-grid mx-auto"></div>
         <div class="text-center">
-            <p id="gameStatus" class="mb-3">Hider, choose your position!</p>
-            <button id="resetBtn" class="btn btn-primary" style="display: none;">Play Again</button>
+            <h2>Choose your role:</h2>
+            <div class="mt-4">
+                <a href="/join/hider" class="btn btn-success btn-lg m-2">Join as Hider</a>
+                <a href="/join/seeker" class="btn btn-danger btn-lg m-2">Join as Seeker</a>
+            </div>
         </div>
     </div>
-    <script>
-        let gameState = {
-            currentPlayer: 'hider', // 'hider' or 'seeker'
-            phase: 'placement',     // 'placement' or 'movement'
-            hiderPosition: null,
-            seekerPosition: null
-        };
-
-        function createGameBoard() {
-            const gameBoard = document.getElementById('gameBoard');
-            gameBoard.innerHTML = '';
-            for (let y = 0; y < 6; y++) {
-                for (let x = 0; x < 6; x++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'cell';
-                    cell.dataset.x = x;
-                    cell.dataset.y = y;
-                    cell.textContent = '';
-                    gameBoard.appendChild(cell);
-                }
-            }
-            console.log('Game board created with 6x6 grid');
-        }
-
-        // Add these lines back to create the board
-        createGameBoard();
-
-        function isValidMove(fromX, fromY, toX, toY) {
-            const dx = Math.abs(toX - fromX);
-            const dy = Math.abs(toY - fromY);
-            return (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
-        }
-
-        function updateGameStatus() {
-            const statusElement = document.getElementById('gameStatus');
-            if (gameState.phase === 'placement') {
-                statusElement.textContent = `${gameState.currentPlayer === 'hider' ? 'Hider' : 'Seeker'}, choose your starting position!`;
-            } else {
-                statusElement.textContent = `${gameState.currentPlayer === 'hider' ? 'Hider' : 'Seeker'}'s turn to move`;
-            }
-        }
-
-        document.querySelectorAll('.cell').forEach(cell => {
-            cell.addEventListener('click', function() {
-                const x = parseInt(this.dataset.x);
-                const y = parseInt(this.dataset.y);
-                
-                if (gameState.phase === 'placement') {
-                    // Handle initial placement
-                    if (gameState.currentPlayer === 'hider') {
-                        gameState.hiderPosition = { x, y };
-                        this.classList.add('hider');
-                        gameState.currentPlayer = 'seeker';
-                    } else {
-                        // Don't allow seeker to start on hider's position
-                        if (x === gameState.hiderPosition.x && y === gameState.hiderPosition.y) {
-                            return;
-                        }
-                        gameState.seekerPosition = { x, y };
-                        this.classList.add('seeker');
-                        gameState.phase = 'movement';
-                        gameState.currentPlayer = 'hider';
-                    }
-                } else {
-                    // Handle movement
-                    const currentPos = gameState.currentPlayer === 'hider' ? 
-                        gameState.hiderPosition : gameState.seekerPosition;
-                    
-                    // Check if move is valid
-                    if (!isValidMove(currentPos.x, currentPos.y, x, y)) {
-                        console.log('Invalid move - can only move one square at a time');
-                        return;
-                    }
-
-                    // Don't allow moving to occupied square
-                    if ((gameState.currentPlayer === 'hider' && 
-                         x === gameState.seekerPosition.x && y === gameState.seekerPosition.y) ||
-                        (gameState.currentPlayer === 'seeker' && 
-                         x === gameState.hiderPosition.x && y === gameState.hiderPosition.y)) {
-                        return;
-                    }
-
-                    // Update position and visual
-                    const oldCell = document.querySelector(
-                        `[data-x="${currentPos.x}"][data-y="${currentPos.y}"]`
-                    );
-                    oldCell.classList.remove(gameState.currentPlayer);
-                    this.classList.add(gameState.currentPlayer);
-
-                    if (gameState.currentPlayer === 'hider') {
-                        gameState.hiderPosition = { x, y };
-                        gameState.currentPlayer = 'seeker';
-                    } else {
-                        gameState.seekerPosition = { x, y };
-                        gameState.currentPlayer = 'hider';
-                    }
-
-                    // Check if seeker caught hider
-                    if (gameState.hiderPosition.x === gameState.seekerPosition.x && 
-                        gameState.hiderPosition.y === gameState.seekerPosition.y) {
-                        document.getElementById('gameStatus').textContent = 'Game Over - Seeker Wins!';
-                        return;
-                    }
-                }
-
-                updateGameStatus();
-                console.log('Current position:', { x, y });
-                
-                fetch('/play', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        position: { x, y },
-                        player: gameState.currentPlayer,
-                        phase: gameState.phase
-                    })
-                });
-            });
-        });
-
-        // Initialize game status
-        updateGameStatus();
-    </script>
 </body>
 </html>

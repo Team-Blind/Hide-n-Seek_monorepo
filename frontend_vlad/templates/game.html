@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hide and Seek Game - {{ player_type|title }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        .game-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 80px);
+            gap: 4px;
+            margin: 20px auto;
+            width: fit-content;
+            background-color: #ddd;
+            padding: 4px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .cell {
+            width: 80px;
+            height: 80px;
+            background-color: #ffffff;
+            border: 1px solid #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        .cell:hover {
+            background-color: #f8f8f8;
+            transform: scale(1.02);
+        }
+        .hider {
+            background-color: #90ee90 !important;
+            border-color: #7ed17e;
+        }
+        .seeker {
+            background-color: #ffcccb !important;
+            border-color: #ffb3b3;
+        }
+        .game-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 40px;
+            margin: 20px auto;
+        }
+        .side-image {
+            width: 200px;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center mb-4">Hide and Seek Game - You are the {{ player_type|title }}</h1>
+        <div class="game-container">
+            <img src="{{ url_for('static', filename='images/left-image.png') }}" alt="Left Image" class="side-image">
+            <div id="gameBoard" class="game-grid"></div>
+            <img src="{{ url_for('static', filename='images/right-image.png') }}" alt="Right Image" class="side-image">
+        </div>
+        <div class="text-center">
+            <p id="gameStatus" class="mb-3">Waiting for both players...</p>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const playerType = '{{ player_type }}';
+        let gameState = null;
+
+        function createGameBoard() {
+            const gameBoard = document.getElementById('gameBoard');
+            gameBoard.innerHTML = '';
+            for (let y = 0; y < 6; y++) {
+                for (let x = 0; x < 6; x++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.x = x;
+                    cell.dataset.y = y;
+                    gameBoard.appendChild(cell);
+                }
+            }
+        }
+
+        function updateBoard() {
+            if (!gameState) return;
+            
+            // Clear all cells
+            document.querySelectorAll('.cell').forEach(cell => {
+                cell.classList.remove('hider', 'seeker');
+            });
+
+            // Update positions
+            if (gameState.hider_position) {
+                const hiderCell = document.querySelector(
+                    `[data-x="${gameState.hider_position.x}"][data-y="${gameState.hider_position.y}"]`
+                );
+                if (hiderCell && (playerType === 'hider' || gameState.phase === 'game_over')) {
+                    hiderCell.classList.add('hider');
+                }
+            }
+
+            if (gameState.seeker_position) {
+                const seekerCell = document.querySelector(
+                    `[data-x="${gameState.seeker_position.x}"][data-y="${gameState.seeker_position.y}"]`
+                );
+                // Only show seeker if we are the seeker or game is over
+                if (seekerCell && (playerType === 'seeker' || gameState.phase === 'game_over')) {
+                    seekerCell.classList.add('seeker');
+                }
+            }
+        }
+
+        function updateStatus() {
+            const statusElement = document.getElementById('gameStatus');
+            if (!gameState.hider_connected || !gameState.seeker_connected) {
+                statusElement.textContent = 'Waiting for both players...';
+            } else if (gameState.phase === 'placement') {
+                if ((playerType === 'hider' && !gameState.hider_position) ||
+                    (playerType === 'seeker' && !gameState.hider_position)) {
+                    statusElement.textContent = 'Hider, choose your starting position!';
+                } else if ((playerType === 'seeker' && !gameState.seeker_position)) {
+                    statusElement.textContent = 'Seeker, choose your starting position!';
+                }
+            } else {
+                if (gameState.current_turn === playerType) {
+                    statusElement.textContent = 'Your turn to move!';
+                } else {
+                    statusElement.textContent = 'Waiting for opponent...';
+                }
+            }
+        }
+
+        function isValidMove(fromX, fromY, toX, toY) {
+            const dx = Math.abs(toX - fromX);
+            const dy = Math.abs(toY - fromY);
+            return (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
+        }
+
+        createGameBoard();
+
+        socket.on('connect', () => {
+            socket.emit('join', { player_type: playerType });
+        });
+
+        socket.on('game_state_update', (newState) => {
+            gameState = newState;
+            updateBoard();
+            updateStatus();
+        });
+
+        document.querySelectorAll('.cell').forEach(cell => {
+            cell.addEventListener('click', function() {
+                if (!gameState || gameState.current_turn !== playerType) return;
+
+                const x = parseInt(this.dataset.x);
+                const y = parseInt(this.dataset.y);
+                const position = { x, y };
+
+                if (gameState.phase === 'placement') {
+                    if (playerType === 'hider' && !gameState.hider_position) {
+                        socket.emit('move', { position, player_type: playerType });
+                    } else if (playerType === 'seeker' && !gameState.seeker_position && gameState.hider_position) {
+                        if (x === gameState.hider_position.x && y === gameState.hider_position.y) return;
+                        socket.emit('move', { position, player_type: playerType });
+                    }
+                } else {
+                    const currentPos = playerType === 'hider' ? gameState.hider_position : gameState.seeker_position;
+                    if (!isValidMove(currentPos.x, currentPos.y, x, y)) return;
+                    
+                    const otherPos = playerType === 'hider' ? gameState.seeker_position : gameState.hider_position;
+                    if (x === otherPos.x && y === otherPos.y) return;
+                    
+                    socket.emit('move', { position, player_type: playerType });
+                }
+            });
+        });
+    </script>
+</body>
+</html> 
