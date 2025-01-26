@@ -52,9 +52,8 @@
             margin: 20px auto;
         }
         .side-image {
-            width: 200px;
-            height: 200px;
-            object-fit: cover;
+            width: 500px;
+            height: 500px;
             border-radius: 10px;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
@@ -125,6 +124,15 @@
             }
         }
 
+        function calculateDistance() {
+            if (!gameState || !gameState.hider_position || !gameState.seeker_position) return null;
+            
+            const dx = gameState.hider_position.x - gameState.seeker_position.x;
+            const dy = gameState.hider_position.y - gameState.seeker_position.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            return Math.round(distance * 10) / 10; // Round to 1 decimal place
+        }
+
         function updateStatus() {
             const statusElement = document.getElementById('gameStatus');
             if (!gameState.hider_connected || !gameState.seeker_connected) {
@@ -137,11 +145,12 @@
                     statusElement.textContent = 'Seeker, choose your starting position!';
                 }
             } else {
-                if (gameState.current_turn === playerType) {
-                    statusElement.textContent = 'Your turn to move!';
-                } else {
-                    statusElement.textContent = 'Waiting for opponent...';
+                const distance = calculateDistance();
+                let statusText = gameState.current_turn === playerType ? 'Your turn to move!' : 'Waiting for opponent...';
+                if (distance !== null) {
+                    statusText += ` Distance to ${playerType === 'hider' ? 'seeker' : 'hider'}: ${distance} squares`;
                 }
+                statusElement.textContent = statusText;
             }
         }
 
