@@ -130,7 +130,7 @@
             const dx = gameState.hider_position.x - gameState.seeker_position.x;
             const dy = gameState.hider_position.y - gameState.seeker_position.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-            return Math.round(distance * 10) / 10; // Round to 1 decimal place
+            return Math.ceil(distance); // Round up to nearest integer
         }
 
         function updateStatus() {
@@ -160,6 +160,19 @@
             return (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
         }
 
+        // Add this new function to log moves
+        function logMove(position, playerType, fromPosition = null) {
+            if (fromPosition) {
+                // Calculate movement vector
+                const dx = position.x - fromPosition.x;
+                const dy = position.y - fromPosition.y;
+                console.log(`${playerType} moved <${dx}, ${dy}>`);
+            } else {
+                // Initial placement
+                console.log(`${playerType} placed at (${position.x}, ${position.y})`);
+            }
+        }
+
         createGameBoard();
 
         socket.on('connect', () => {
@@ -167,6 +180,7 @@
         });
 
         socket.on('game_state_update', (newState) => {
+            // Remove position logging
             gameState = newState;
             updateBoard();
             updateStatus();
@@ -182,18 +196,24 @@
 
                 if (gameState.phase === 'placement') {
                     if (playerType === 'hider' && !gameState.hider_position) {
+                        logMove(position, 'Hider');
                         socket.emit('move', { position, player_type: playerType });
                     } else if (playerType === 'seeker' && !gameState.seeker_position && gameState.hider_position) {
                         if (x === gameState.hider_position.x && y === gameState.hider_position.y) return;
+                        logMove(position, 'Seeker');
                         socket.emit('move', { position, player_type: playerType });
                     }
                 } else {
                     const currentPos = playerType === 'hider' ? gameState.hider_position : gameState.seeker_position;
-                    if (!isValidMove(currentPos.x, currentPos.y, x, y)) return;
+                    if (!isValidMove(currentPos.x, currentPos.y, x, y)) {
+                        console.log('Invalid move attempted');
+                        return;
+                    }
                     
                     const otherPos = playerType === 'hider' ? gameState.seeker_position : gameState.hider_position;
                     if (x === otherPos.x && y === otherPos.y) return;
                     
+                    logMove(position, playerType === 'hider' ? 'Hider' : 'Seeker', currentPos);
                     socket.emit('move', { position, player_type: playerType });
                 }
             });
