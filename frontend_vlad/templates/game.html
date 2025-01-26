@@ -64,9 +64,13 @@
     <div class="container mt-5">
         <h1 class="text-center mb-4">Hide and Seek Game - You are the {{ player_type|title }}</h1>
         <div class="game-container">
-            <img src="{{ url_for('static', filename='images/left-image.png') }}" alt="Left Image" class="side-image">
+            <img src="{{ url_for('static', filename='images/left_image.png') }}" 
+                 alt="Left Player" 
+                 class="side-image">
             <div id="gameBoard" class="game-grid"></div>
-            <img src="{{ url_for('static', filename='images/right-image.png') }}" alt="Right Image" class="side-image">
+            <img src="{{ url_for('static', filename='images/right_image.png') }}" 
+                 alt="Right Player" 
+                 class="side-image">
         </div>
         <div class="text-center">
             <p id="gameStatus" class="mb-3">Waiting for both players...</p>
