@@ -80,6 +80,7 @@
         const socket = io();
         const playerType = '{{ player_type }}';
         let gameState = null;
+        let myPosition = null;  // Only track own position
 
         function createGameBoard() {
             const gameBoard = document.getElementById('gameBoard');
@@ -98,57 +99,34 @@
         function updateBoard() {
             if (!gameState) return;
             
-            // Clear all cells
             document.querySelectorAll('.cell').forEach(cell => {
                 cell.classList.remove('hider', 'seeker');
             });
 
-            // Update positions
-            if (gameState.hider_position) {
-                const hiderCell = document.querySelector(
-                    `[data-x="${gameState.hider_position.x}"][data-y="${gameState.hider_position.y}"]`
+            if (myPosition) {
+                const cell = document.querySelector(
+                    `[data-x="${myPosition.x}"][data-y="${myPosition.y}"]`
                 );
-                if (hiderCell && (playerType === 'hider' || gameState.phase === 'game_over')) {
-                    hiderCell.classList.add('hider');
-                }
-            }
-
-            if (gameState.seeker_position) {
-                const seekerCell = document.querySelector(
-                    `[data-x="${gameState.seeker_position.x}"][data-y="${gameState.seeker_position.y}"]`
-                );
-                // Only show seeker if we are the seeker or game is over
-                if (seekerCell && (playerType === 'seeker' || gameState.phase === 'game_over')) {
-                    seekerCell.classList.add('seeker');
+                if (cell) {
+                    cell.classList.add(playerType);
                 }
             }
         }
 
-        function calculateDistance() {
-            if (!gameState || !gameState.hider_position || !gameState.seeker_position) return null;
-            
-            const dx = gameState.hider_position.x - gameState.seeker_position.x;
-            const dy = gameState.hider_position.y - gameState.seeker_position.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            return Math.ceil(distance); // Round up to nearest integer
-        }
-
-        function updateStatus() {
+        function updateStatus(distance) {
             const statusElement = document.getElementById('gameStatus');
             if (!gameState.hider_connected || !gameState.seeker_connected) {
                 statusElement.textContent = 'Waiting for both players...';
             } else if (gameState.phase === 'placement') {
-                if ((playerType === 'hider' && !gameState.hider_position) ||
-                    (playerType === 'seeker' && !gameState.hider_position)) {
-                    statusElement.textContent = 'Hider, choose your starting position!';
-                } else if ((playerType === 'seeker' && !gameState.seeker_position)) {
-                    statusElement.textContent = 'Seeker, choose your starting position!';
+                if (!myPosition) {
+                    statusElement.textContent = 'Choose your starting position!';
+                } else {
+                    statusElement.textContent = 'Waiting for other player to place...';
                 }
             } else {
-                const distance = calculateDistance();
                 let statusText = gameState.current_turn === playerType ? 'Your turn to move!' : 'Waiting for opponent...';
                 if (distance !== null) {
-                    statusText += ` Distance to ${playerType === 'hider' ? 'seeker' : 'hider'}: ${distance} squares`;
+                    statusText += ` Distance: ${distance} squares`;
                 }
                 statusElement.textContent = statusText;
             }
@@ -180,40 +158,70 @@
         });
 
         socket.on('game_state_update', (newState) => {
-            // Remove position logging
-            gameState = newState;
+            // Merge the received state with existing state to keep local properties
+            gameState = {
+                ...gameState,
+                ...newState,
+                hider_connected: newState.hider_connected ?? gameState?.hider_connected,
+                seeker_connected: newState.seeker_connected ?? gameState?.seeker_connected
+            };
             updateBoard();
             updateStatus();
         });
 
+        socket.on('position_update', function(data) {
+            myPosition = data.position;
+            updateBoard();
+        });
+
+        socket.on('distance_update', function(data) {
+            const distance = data.distance;
+            updateStatus(distance);
+        });
+
+        socket.on('request_position', function(data) {
+            // Only respond if we're the other player
+            if (data.from_player !== playerType && myPosition) {
+                let positions = {};
+                if (playerType === 'hider') {
+                    positions.hider_pos = myPosition;
+                    positions.seeker_pos = data.position;
+                } else {
+                    positions.hider_pos = data.position;
+                    positions.seeker_pos = myPosition;
+                }
+                socket.emit('position_response', positions);
+            }
+        });
+
         document.querySelectorAll('.cell').forEach(cell => {
             cell.addEventListener('click', function() {
-                if (!gameState || gameState.current_turn !== playerType) return;
+                if (!gameState) return;
+                
+                // During placement phase, check if it's this player's turn to place
+                if (gameState.phase === 'placement') {
+                    if (playerType === 'hider' && myPosition) return; // Hider already placed
+                    if (playerType === 'seeker' && gameState.current_turn !== 'seeker') return; // Not seeker's turn yet
+                    if (playerType === 'seeker' && myPosition) return; // Seeker already placed
+                } else if (gameState.current_turn !== playerType) {
+                    return; // Not this player's turn during movement phase
+                }
 
                 const x = parseInt(this.dataset.x);
                 const y = parseInt(this.dataset.y);
                 const position = { x, y };
 
                 if (gameState.phase === 'placement') {
-                    if (playerType === 'hider' && !gameState.hider_position) {
-                        logMove(position, 'Hider');
-                        socket.emit('move', { position, player_type: playerType });
-                    } else if (playerType === 'seeker' && !gameState.seeker_position && gameState.hider_position) {
-                        if (x === gameState.hider_position.x && y === gameState.hider_position.y) return;
-                        logMove(position, 'Seeker');
-                        socket.emit('move', { position, player_type: playerType });
-                    }
+                    logMove(position, playerType === 'hider' ? 'Hider' : 'Seeker');
+                    socket.emit('move', { position, player_type: playerType });
                 } else {
-                    const currentPos = playerType === 'hider' ? gameState.hider_position : gameState.seeker_position;
-                    if (!isValidMove(currentPos.x, currentPos.y, x, y)) {
+                    if (!myPosition) return;
+                    if (!isValidMove(myPosition.x, myPosition.y, x, y)) {
                         console.log('Invalid move attempted');
                         return;
                     }
                     
-                    const otherPos = playerType === 'hider' ? gameState.seeker_position : gameState.hider_position;
-                    if (x === otherPos.x && y === otherPos.y) return;
-                    
-                    logMove(position, playerType === 'hider' ? 'Hider' : 'Seeker', currentPos);
+                    logMove(position, playerType === 'hider' ? 'Hider' : 'Seeker', myPosition);
                     socket.emit('move', { position, player_type: playerType });
                 }
             });
