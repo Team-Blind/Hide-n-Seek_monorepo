@@ -10,11 +10,31 @@
     <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
 
     <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+
+        .game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+            max-width: 300px;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
         .game-board {
             display: grid;
             grid-template-columns: repeat(6, 50px);
             gap: 5px;
-            margin: 20px auto;
+            margin: 20px 0;
         }
 
         .cell {
@@ -31,14 +51,23 @@
         .cell:hover {
             background-color: #e0e0e0;
         }
+
+        .highlight-hider {
+            background-color: lightgreen !important;
+        }
+
+        .highlight-seeker {
+            background-color: lightcoral !important;
+        }
     </style>
 </head>
 <body>
-    <h1>Hide and Seek Game</h1>
-    <p>You are the <strong id="player_type">{{ player_type }}</strong></p>
-    <div id="gameBoard" class="game-board"></div>
-    <p id="gameStatus">Waiting for both players...</p>
-    <p id="distanceStatus"></p>
+    <div class="game-container">
+        <h1>Hide and Seek Game</h1>
+        <p>You are the <strong id="player_type">{{ player_type }}</strong></p>
+        <div id="gameBoard" class="game-board"></div>
+        <p id="gameStatus">Waiting for both players...</p>
+    </div>
 
     <script type="py">
         import js
@@ -49,7 +78,6 @@
             def __init__(self):
                 self.player_type = js.document.getElementById("player_type").textContent.strip()
                 self.status_element = js.document.getElementById("gameStatus")
-                self.distance_element = js.document.getElementById("distanceStatus")
                 self.my_position = None
                 self.game_state = None
 
@@ -108,6 +136,14 @@
             def on_game_state_update(self, state):
                 """Handle updates to the game state."""
                 self.game_state = json.loads(state)
+
+                # Clear any existing highlights
+                self.clear_highlights()
+
+                # Only highlight the current player's position
+                if "positions" in self.game_state and self.player_type in self.game_state["positions"]:
+                    self.highlight_position(self.game_state["positions"][self.player_type])
+
                 if self.game_state["phase"] == "placement":
                     self.update_status("Choose your starting position!")
                 elif self.game_state["phase"] == "movement":
@@ -115,6 +151,20 @@
                         self.update_status("Your turn to move!")
                     else:
                         self.update_status("Waiting for opponent to move...")
+
+            def highlight_position(self, position):
+                """Highlight the current player's position on the board."""
+                selector = f".cell[data-x='{position['x']}'][data-y='{position['y']}']"
+                cell = js.document.querySelector(selector)
+                if cell:
+                    class_name = "highlight-hider" if self.player_type == "hider" else "highlight-seeker"
+                    cell.classList.add(class_name)
+
+            def clear_highlights(self):
+                """Clear all highlights from the game board."""
+                cells = js.document.querySelectorAll(".cell")
+                for cell in cells:
+                    cell.classList.remove("highlight-hider", "highlight-seeker")
 
             def on_invalid_move(self, message):
                 """Handle invalid moves."""
