@@ -4,32 +4,32 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hide and Seek Game</title>
-    <!-- Include PyScript and Socket.IO client -->
+
     <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
     <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
     <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            margin: 20px;
-        }
         .game-board {
             display: grid;
             grid-template-columns: repeat(6, 50px);
             gap: 5px;
-            justify-content: center;
             margin: 20px auto;
         }
+
         .cell {
             width: 50px;
             height: 50px;
-            background-color: #ddd;
-            border: 1px solid #bbb;
-            text-align: center;
-            line-height: 50px;
-            font-size: 20px;
+            background-color: lightgray;
+            border: 1px solid #ccc;
+            display: flex;
+            justify-content: center;
+            align-items: center;
             cursor: pointer;
+        }
+
+        .cell:hover {
+            background-color: #e0e0e0;
         }
     </style>
 </head>
@@ -38,33 +38,38 @@
     <p>You are the <strong id="player_type">{{ player_type }}</strong></p>
     <div id="gameBoard" class="game-board"></div>
     <p id="gameStatus">Waiting for both players...</p>
+    <p id="distanceStatus"></p>
 
     <script type="py">
         import js
+        import json
+        from pyodide.ffi import create_proxy
 
         class HideAndSeekGame:
             def __init__(self):
-                self.player_type = js.document.getElementById("player_type").textContent
+                self.player_type = js.document.getElementById("player_type").textContent.strip()
                 self.status_element = js.document.getElementById("gameStatus")
+                self.distance_element = js.document.getElementById("distanceStatus")
                 self.my_position = None
-                self.init_socket()
+                self.game_state = None
+
+                # Initialize the game
                 self.create_board()
+                self.init_socket()
 
             def init_socket(self):
-                """Initialize the Socket.IO connection."""
-                # Access the `io` function provided by the Socket.IO client
-                self.sio = js.eval("io('http://localhost:5001')")
+                """Initialize the Socket.IO client connection."""
+                self.sio = js.io('http://127.0.0.1:5001')
 
                 # Register event handlers
-                self.sio.on("game_state_update", self.on_game_state_update)
-                self.sio.on("distance_update", self.on_distance_update)
-                self.sio.on("request_position", self.on_request_position)
+                self.sio.on("game_state_update", create_proxy(self.on_game_state_update))
+                self.sio.on("invalid_move", create_proxy(self.on_invalid_move))
 
-                # Join the game room
-                self.sio.emit("join", {"player_type": self.player_type})
+                print("Connecting to server...")
+                self.sio.emit("join", json.dumps({"player_type": self.player_type}))
 
-                def create_board(self):
-                """Create the game board and bind click events."""
+            def create_board(self):
+                """Create the game board with clickable cells."""
                 game_board = js.document.getElementById("gameBoard")
                 for y in range(6):
                     for x in range(6):
@@ -72,47 +77,53 @@
                         cell.className = "cell"
                         cell.dataset.x = x
                         cell.dataset.y = y
-            
-                        # Use create_proxy to wrap the event handler
-                        proxy_handler = create_proxy(lambda event: self.handle_cell_click(x, y))
-                        cell.addEventListener("click", proxy_handler)
-            
+                        cell.addEventListener("click", create_proxy(lambda event: self.handle_cell_click(event)))
                         game_board.appendChild(cell)
-            
 
-            def handle_cell_click(self, x, y):
-                """Handle a click event on a cell."""
-                if not self.my_position:
-                    self.my_position = {"x": x, "y": y}
-                    self.sio.emit("move", {"position": self.my_position, "player_type": self.player_type})
-                    self.update_status(f"You selected position ({x}, {y}).")
+            def handle_cell_click(self, event):
+                """Handle clicks on the game board."""
+                if not self.game_state:
+                    self.update_status("Cannot move yet!")
+                    return
+
+                if self.game_state["phase"] == "placement":
+                    if not self.my_position:
+                        x = int(event.target.dataset.x)
+                        y = int(event.target.dataset.y)
+                        self.my_position = {"x": x, "y": y}
+                        self.sio.emit("move", json.dumps({"position": self.my_position, "player_type": self.player_type}))
+                        self.update_status(f"Position set to ({x}, {y}). Waiting for opponent.")
+                    else:
+                        self.update_status("Waiting for both players to place positions.")
+                elif self.game_state["phase"] == "movement":
+                    if self.game_state["current_turn"] != self.player_type:
+                        self.update_status("Not your turn!")
+                        return
+
+                    x = int(event.target.dataset.x)
+                    y = int(event.target.dataset.y)
+                    self.sio.emit("move", json.dumps({"position": {"x": x, "y": y}, "player_type": self.player_type}))
+                    self.update_status(f"Moved to ({x}, {y}). Waiting for opponent.")
 
             def on_game_state_update(self, state):
-                """Handle game state updates from the server."""
-                if state["phase"] == "placement":
+                """Handle updates to the game state."""
+                self.game_state = json.loads(state)
+                if self.game_state["phase"] == "placement":
                     self.update_status("Choose your starting position!")
-                else:
-                    self.update_status("Game in progress...")
+                elif self.game_state["phase"] == "movement":
+                    if self.game_state["current_turn"] == self.player_type:
+                        self.update_status("Your turn to move!")
+                    else:
+                        self.update_status("Waiting for opponent to move...")
 
-            def on_distance_update(self, data):
-                """Handle distance updates from the server."""
-                self.update_status(f"Distance between players: {data['distance']}")
-
-            def on_request_position(self, data):
-                """Respond with the player's position when requested."""
-                other_position = data["position"]
-                if self.player_type == "hider":
-                    response_data = {"hider_pos": self.my_position, "seeker_pos": other_position}
-                else:
-                    response_data = {"hider_pos": other_position, "seeker_pos": self.my_position}
-                
-                self.sio.emit("position_response", response_data)
+            def on_invalid_move(self, message):
+                """Handle invalid moves."""
+                self.update_status(json.loads(message)["message"])
 
             def update_status(self, message):
-                """Update the game status message."""
+                """Update the main game status."""
                 self.status_element.textContent = message
 
-        # Initialize and start the game
         GAME = HideAndSeekGame()
     </script>
 </body>
