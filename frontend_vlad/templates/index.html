@@ -73,29 +73,29 @@
         import js
         import json
         from pyodide.ffi import create_proxy
-
+    
         class HideAndSeekGame:
             def __init__(self):
                 self.player_type = js.document.getElementById("player_type").textContent.strip()
                 self.status_element = js.document.getElementById("gameStatus")
                 self.my_position = None
                 self.game_state = None
-
+    
                 # Initialize the game
                 self.create_board()
                 self.init_socket()
-
+    
             def init_socket(self):
                 """Initialize the Socket.IO client connection."""
                 self.sio = js.io('http://127.0.0.1:5001')
-
+    
                 # Register event handlers
                 self.sio.on("game_state_update", create_proxy(self.on_game_state_update))
                 self.sio.on("invalid_move", create_proxy(self.on_invalid_move))
-
+    
                 print("Connecting to server...")
                 self.sio.emit("join", json.dumps({"player_type": self.player_type}))
-
+    
             def create_board(self):
                 """Create the game board with clickable cells."""
                 game_board = js.document.getElementById("gameBoard")
@@ -107,17 +107,18 @@
                         cell.dataset.y = y
                         cell.addEventListener("click", create_proxy(lambda event: self.handle_cell_click(event)))
                         game_board.appendChild(cell)
-
+    
             def handle_cell_click(self, event):
                 """Handle clicks on the game board."""
                 if not self.game_state:
                     self.update_status("Cannot move yet!")
                     return
-
+    
+                x = int(event.target.dataset.x)
+                y = int(event.target.dataset.y)
+    
                 if self.game_state["phase"] == "placement":
                     if not self.my_position:
-                        x = int(event.target.dataset.x)
-                        y = int(event.target.dataset.y)
                         self.my_position = {"x": x, "y": y}
                         self.sio.emit("move", json.dumps({"position": self.my_position, "player_type": self.player_type}))
                         self.update_status(f"Position set to ({x}, {y}). Waiting for opponent.")
@@ -127,23 +128,37 @@
                     if self.game_state["current_turn"] != self.player_type:
                         self.update_status("Not your turn!")
                         return
-
-                    x = int(event.target.dataset.x)
-                    y = int(event.target.dataset.y)
-                    self.sio.emit("move", json.dumps({"position": {"x": x, "y": y}, "player_type": self.player_type}))
+    
+                    if not self.is_valid_move(x, y):
+                        self.update_status("Invalid move! You can only move left, right, up, or down.")
+                        return
+    
+                    self.my_position = {"x": x, "y": y}
+                    self.sio.emit("move", json.dumps({"position": self.my_position, "player_type": self.player_type}))
                     self.update_status(f"Moved to ({x}, {y}). Waiting for opponent.")
-
+    
+            def is_valid_move(self, new_x, new_y):
+                """Check if the move is valid (only left, right, up, or down)."""
+                if not self.my_position:
+                    return False
+    
+                current_x, current_y = self.my_position["x"], self.my_position["y"]
+    
+                # Valid move is one step in any direction (left, right, up, or down)
+                return (abs(new_x - current_x) == 1 and new_y == current_y) or \
+                       (abs(new_y - current_y) == 1 and new_x == current_x)
+    
             def on_game_state_update(self, state):
                 """Handle updates to the game state."""
                 self.game_state = json.loads(state)
-
+    
                 # Clear any existing highlights
                 self.clear_highlights()
-
+    
                 # Only highlight the current player's position
                 if "positions" in self.game_state and self.player_type in self.game_state["positions"]:
                     self.highlight_position(self.game_state["positions"][self.player_type])
-
+    
                 if self.game_state["phase"] == "placement":
                     self.update_status("Choose your starting position!")
                 elif self.game_state["phase"] == "movement":
@@ -151,7 +166,7 @@
                         self.update_status("Your turn to move!")
                     else:
                         self.update_status("Waiting for opponent to move...")
-
+    
             def highlight_position(self, position):
                 """Highlight the current player's position on the board."""
                 selector = f".cell[data-x='{position['x']}'][data-y='{position['y']}']"
@@ -159,22 +174,23 @@
                 if cell:
                     class_name = "highlight-hider" if self.player_type == "hider" else "highlight-seeker"
                     cell.classList.add(class_name)
-
+    
             def clear_highlights(self):
                 """Clear all highlights from the game board."""
                 cells = js.document.querySelectorAll(".cell")
                 for cell in cells:
                     cell.classList.remove("highlight-hider", "highlight-seeker")
-
+    
             def on_invalid_move(self, message):
                 """Handle invalid moves."""
                 self.update_status(json.loads(message)["message"])
-
+    
             def update_status(self, message):
                 """Update the main game status."""
                 self.status_element.textContent = message
-
+    
         GAME = HideAndSeekGame()
     </script>
+    
 </body>
 </html>
