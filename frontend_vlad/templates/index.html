@@ -4,18 +4,116 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hide and Seek Game</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Include PyScript and Socket.IO client -->
+    <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
+    <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+        }
+        .game-board {
+            display: grid;
+            grid-template-columns: repeat(6, 50px);
+            gap: 5px;
+            justify-content: center;
+            margin: 20px auto;
+        }
+        .cell {
+            width: 50px;
+            height: 50px;
+            background-color: #ddd;
+            border: 1px solid #bbb;
+            text-align: center;
+            line-height: 50px;
+            font-size: 20px;
+            cursor: pointer;
+        }
+    </style>
 </head>
 <body>
-    <div class="container mt-5">
-        <h1 class="text-center mb-4">Hide and Seek Game</h1>
-        <div class="text-center">
-            <h2>Choose your role:</h2>
-            <div class="mt-4">
-                <a href="/join/hider" class="btn btn-success btn-lg m-2">Join as Hider</a>
-                <a href="/join/seeker" class="btn btn-danger btn-lg m-2">Join as Seeker</a>
-            </div>
-        </div>
-    </div>
+    <h1>Hide and Seek Game</h1>
+    <p>You are the <strong id="player_type">{{ player_type }}</strong></p>
+    <div id="gameBoard" class="game-board"></div>
+    <p id="gameStatus">Waiting for both players...</p>
+
+    <script type="py">
+        import js
+
+        class HideAndSeekGame:
+            def __init__(self):
+                self.player_type = js.document.getElementById("player_type").textContent
+                self.status_element = js.document.getElementById("gameStatus")
+                self.my_position = None
+                self.init_socket()
+                self.create_board()
+
+            def init_socket(self):
+                """Initialize the Socket.IO connection."""
+                # Access the `io` function provided by the Socket.IO client
+                self.sio = js.eval("io('http://localhost:5001')")
+
+                # Register event handlers
+                self.sio.on("game_state_update", self.on_game_state_update)
+                self.sio.on("distance_update", self.on_distance_update)
+                self.sio.on("request_position", self.on_request_position)
+
+                # Join the game room
+                self.sio.emit("join", {"player_type": self.player_type})
+
+                def create_board(self):
+                """Create the game board and bind click events."""
+                game_board = js.document.getElementById("gameBoard")
+                for y in range(6):
+                    for x in range(6):
+                        cell = js.document.createElement("div")
+                        cell.className = "cell"
+                        cell.dataset.x = x
+                        cell.dataset.y = y
+            
+                        # Use create_proxy to wrap the event handler
+                        proxy_handler = create_proxy(lambda event: self.handle_cell_click(x, y))
+                        cell.addEventListener("click", proxy_handler)
+            
+                        game_board.appendChild(cell)
+            
+
+            def handle_cell_click(self, x, y):
+                """Handle a click event on a cell."""
+                if not self.my_position:
+                    self.my_position = {"x": x, "y": y}
+                    self.sio.emit("move", {"position": self.my_position, "player_type": self.player_type})
+                    self.update_status(f"You selected position ({x}, {y}).")
+
+            def on_game_state_update(self, state):
+                """Handle game state updates from the server."""
+                if state["phase"] == "placement":
+                    self.update_status("Choose your starting position!")
+                else:
+                    self.update_status("Game in progress...")
+
+            def on_distance_update(self, data):
+                """Handle distance updates from the server."""
+                self.update_status(f"Distance between players: {data['distance']}")
+
+            def on_request_position(self, data):
+                """Respond with the player's position when requested."""
+                other_position = data["position"]
+                if self.player_type == "hider":
+                    response_data = {"hider_pos": self.my_position, "seeker_pos": other_position}
+                else:
+                    response_data = {"hider_pos": other_position, "seeker_pos": self.my_position}
+                
+                self.sio.emit("position_response", response_data)
+
+            def update_status(self, message):
+                """Update the game status message."""
+                self.status_element.textContent = message
+
+        # Initialize and start the game
+        GAME = HideAndSeekGame()
+    </script>
 </body>
 </html>
