@@ -4,197 +4,68 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hide and Seek Game</title>
-
-    <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
-    <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
-    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
-
     <style>
         body {
             font-family: Arial, sans-serif;
+            background-color: #f9f9f9;
+            color: #333;
             text-align: center;
-            height: 100vh;
-            margin: 0;
-            padding: 0;
-            background-color: #f0f0f0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-    
-        .game-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-            height: 100%;
-            background-color: white;
             padding: 20px;
+            margin: 0;
         }
-    
-        .game-board {
-            display: grid;
-            grid-template-columns: repeat(6, 80px);
-            gap: 10px;
-            margin: 20px 0;
+
+        h1 {
+            color: #444;
+            font-size: 2rem;
+            margin-bottom: 20px;
         }
-    
-        .cell {
-            width: 80px;
-            height: 80px;
-            background-color: lightgray;
-            border: 1px solid #ccc;
+
+        p {
+            font-size: 1.2rem;
+            margin-bottom: 30px;
+            color: #666;
+        }
+
+        .button-container {
             display: flex;
             justify-content: center;
-            align-items: center;
-            cursor: pointer;
+            gap: 20px;
         }
-    
-        .cell:hover {
-            background-color: #e0e0e0;
+
+        .button {
+            padding: 12px 24px;
+            font-size: 1rem;
+            font-weight: bold;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: background-color 0.3s;
         }
-    
-        .highlight-hider {
-            background-color: lightgreen !important;
+
+        .button-hider {
+            background-color: #4caf50; /* Green for hider */
         }
-    
-        .highlight-seeker {
-            background-color: lightcoral !important;
+
+        .button-hider:hover {
+            background-color: #388e3c;
+        }
+
+        .button-seeker {
+            background-color: #ff4d4d; /* Red for seeker */
+        }
+
+        .button-seeker:hover {
+            background-color: #cc0000;
         }
     </style>
-  
 </head>
 <body>
-    <div class="game-container">
-        <h1>Hide and Seek Game</h1>
-        <p>You are the <strong id="player_type">{{ player_type }}</strong></p>
-        <div id="gameBoard" class="game-board"></div>
-        <p id="gameStatus">Waiting for both players...</p>
-    </div>
+    <h1>Welcome to Hide and Seek</h1>
+    <p>Select your role to start the game:</p>
 
-    <script type="py">
-        import js
-        import json
-        from pyodide.ffi import create_proxy
-    
-        class HideAndSeekGame:
-            def __init__(self):
-                self.player_type = js.document.getElementById("player_type").textContent.strip()
-                self.status_element = js.document.getElementById("gameStatus")
-                self.my_position = None
-                self.game_state = None
-    
-                # Initialize the game
-                self.create_board()
-                self.init_socket()
-    
-            def init_socket(self):
-                """Initialize the Socket.IO client connection."""
-                self.sio = js.io('http://127.0.0.1:5001')
-    
-                # Register event handlers
-                self.sio.on("game_state_update", create_proxy(self.on_game_state_update))
-                self.sio.on("invalid_move", create_proxy(self.on_invalid_move))
-    
-                print("Connecting to server...")
-                self.sio.emit("join", json.dumps({"player_type": self.player_type}))
-    
-            def create_board(self):
-                """Create the game board with clickable cells."""
-                game_board = js.document.getElementById("gameBoard")
-                for y in range(6):
-                    for x in range(6):
-                        cell = js.document.createElement("div")
-                        cell.className = "cell"
-                        cell.dataset.x = x
-                        cell.dataset.y = y
-                        cell.addEventListener("click", create_proxy(lambda event: self.handle_cell_click(event)))
-                        game_board.appendChild(cell)
-    
-            def handle_cell_click(self, event):
-                """Handle clicks on the game board."""
-                if not self.game_state:
-                    self.update_status("Cannot move yet!")
-                    return
-    
-                x = int(event.target.dataset.x)
-                y = int(event.target.dataset.y)
-    
-                if self.game_state["phase"] == "placement":
-                    if not self.my_position:
-                        self.my_position = {"x": x, "y": y}
-                        self.sio.emit("move", json.dumps({"position": self.my_position, "player_type": self.player_type}))
-                        self.update_status(f"Position set to ({x}, {y}). Waiting for opponent.")
-                    else:
-                        self.update_status("Waiting for both players to place positions.")
-                elif self.game_state["phase"] == "movement":
-                    if self.game_state["current_turn"] != self.player_type:
-                        self.update_status("Not your turn!")
-                        return
-    
-                    if not self.is_valid_move(x, y):
-                        self.update_status("Invalid move! You can only move left, right, up, or down.")
-                        return
-    
-                    self.my_position = {"x": x, "y": y}
-                    self.sio.emit("move", json.dumps({"position": self.my_position, "player_type": self.player_type}))
-                    self.update_status(f"Moved to ({x}, {y}). Waiting for opponent.")
-    
-            def is_valid_move(self, new_x, new_y):
-                """Check if the move is valid (only left, right, up, or down)."""
-                if not self.my_position:
-                    return False
-    
-                current_x, current_y = self.my_position["x"], self.my_position["y"]
-    
-                # Valid move is one step in any direction (left, right, up, or down)
-                return (abs(new_x - current_x) == 1 and new_y == current_y) or \
-                       (abs(new_y - current_y) == 1 and new_x == current_x)
-    
-            def on_game_state_update(self, state):
-                """Handle updates to the game state."""
-                self.game_state = json.loads(state)
-    
-                # Clear any existing highlights
-                self.clear_highlights()
-    
-                # Only highlight the current player's position
-                if "positions" in self.game_state and self.player_type in self.game_state["positions"]:
-                    self.highlight_position(self.game_state["positions"][self.player_type])
-    
-                if self.game_state["phase"] == "placement":
-                    self.update_status("Choose your starting position!")
-                elif self.game_state["phase"] == "movement":
-                    if self.game_state["current_turn"] == self.player_type:
-                        self.update_status("Your turn to move!")
-                    else:
-                        self.update_status("Waiting for opponent to move...")
-    
-            def highlight_position(self, position):
-                """Highlight the current player's position on the board."""
-                selector = f".cell[data-x='{position['x']}'][data-y='{position['y']}']"
-                cell = js.document.querySelector(selector)
-                if cell:
-                    class_name = "highlight-hider" if self.player_type == "hider" else "highlight-seeker"
-                    cell.classList.add(class_name)
-    
-            def clear_highlights(self):
-                """Clear all highlights from the game board."""
-                cells = js.document.querySelectorAll(".cell")
-                for cell in cells:
-                    cell.classList.remove("highlight-hider", "highlight-seeker")
-    
-            def on_invalid_move(self, message):
-                """Handle invalid moves."""
-                self.update_status(json.loads(message)["message"])
-    
-            def update_status(self, message):
-                """Update the main game status."""
-                self.status_element.textContent = message
-    
-        GAME = HideAndSeekGame()
-    </script>
-    
+    <div class="button-container">
+        <a href="/join/hider" class="button button-hider">Join as Hider</a>
+        <a href="/join/seeker" class="button button-seeker">Join as Seeker</a>
+    </div>
 </body>
 </html>

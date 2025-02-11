@@ -3,9 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hide and Seek Game - {{ player_type|title }}</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <title>Hide and Seek Game</title>
+
+    <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
+    <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+
     <style>
         .game-grid {
             display: grid;
@@ -18,6 +21,7 @@
             border-radius: 8px;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
         }
+
         .cell {
             width: 80px;
             height: 80px;
@@ -32,18 +36,22 @@
             border-radius: 4px;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
         }
+
         .cell:hover {
             background-color: #f8f8f8;
             transform: scale(1.02);
         }
+
         .hider {
             background-color: #90ee90 !important;
             border-color: #7ed17e;
         }
+
         .seeker {
             background-color: #ffcccb !important;
             border-color: #ffb3b3;
         }
+
         .game-container {
             display: flex;
             justify-content: center;
@@ -51,17 +59,39 @@
             gap: 40px;
             margin: 20px auto;
         }
+
         .side-image {
-            width: 500px;
+            width: 450px;
             height: 500px;
             border-radius: 10px;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .text-center {
+            text-align: center;
+            width: 100%;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            padding: 20px;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        #gameStatus {
+            margin-top: 20px;
         }
     </style>
 </head>
 <body>
     <div class="container mt-5">
-        <h1 class="text-center mb-4">Hide and Seek Game - You are the {{ player_type|title }}</h1>
+        <h1 class="text-center mb-4">Hide and Seek Game - You are the <strong id="player_type">{{ player_type|title }}</strong></h1>
         <div class="game-container">
             <img src="{{ url_for('static', filename='images/left_image.png') }}" 
                  alt="Left Player" 
@@ -76,156 +106,124 @@
         </div>
     </div>
 
-    <script>
-        const socket = io();
-        const playerType = '{{ player_type }}';
-        let gameState = null;
-        let myPosition = null;  // Only track own position
+    <script type="py">
+        import js
+        import json
+        from pyodide.ffi import create_proxy
 
-        function createGameBoard() {
-            const gameBoard = document.getElementById('gameBoard');
-            gameBoard.innerHTML = '';
-            for (let y = 0; y < 6; y++) {
-                for (let x = 0; x < 6; x++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'cell';
-                    cell.dataset.x = x;
-                    cell.dataset.y = y;
-                    gameBoard.appendChild(cell);
-                }
-            }
-        }
-
-        function updateBoard() {
-            if (!gameState) return;
-            
-            document.querySelectorAll('.cell').forEach(cell => {
-                cell.classList.remove('hider', 'seeker');
-            });
-
-            if (myPosition) {
-                const cell = document.querySelector(
-                    `[data-x="${myPosition.x}"][data-y="${myPosition.y}"]`
-                );
-                if (cell) {
-                    cell.classList.add(playerType);
-                }
-            }
-        }
-
-        function updateStatus(distance) {
-            const statusElement = document.getElementById('gameStatus');
-            if (!gameState.hider_connected || !gameState.seeker_connected) {
-                statusElement.textContent = 'Waiting for both players...';
-            } else if (gameState.phase === 'placement') {
-                if (!myPosition) {
-                    statusElement.textContent = 'Choose your starting position!';
-                } else {
-                    statusElement.textContent = 'Waiting for other player to place...';
-                }
-            } else {
-                let statusText = gameState.current_turn === playerType ? 'Your turn to move!' : 'Waiting for opponent...';
-                if (distance !== null) {
-                    statusText += ` Distance: ${distance} squares`;
-                }
-                statusElement.textContent = statusText;
-            }
-        }
-
-        function isValidMove(fromX, fromY, toX, toY) {
-            const dx = Math.abs(toX - fromX);
-            const dy = Math.abs(toY - fromY);
-            return (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
-        }
-
-        // Add this new function to log moves
-        function logMove(position, playerType, fromPosition = null) {
-            if (fromPosition) {
-                // Calculate movement vector
-                const dx = position.x - fromPosition.x;
-                const dy = position.y - fromPosition.y;
-                console.log(`${playerType} moved <${dx}, ${dy}>`);
-            } else {
-                // Initial placement
-                console.log(`${playerType} placed at (${position.x}, ${position.y})`);
-            }
-        }
-
-        createGameBoard();
-
-        socket.on('connect', () => {
-            socket.emit('join', { player_type: playerType });
-        });
-
-        socket.on('game_state_update', (newState) => {
-            // Merge the received state with existing state to keep local properties
-            gameState = {
-                ...gameState,
-                ...newState,
-                hider_connected: newState.hider_connected ?? gameState?.hider_connected,
-                seeker_connected: newState.seeker_connected ?? gameState?.seeker_connected
-            };
-            updateBoard();
-            updateStatus();
-        });
-
-        socket.on('position_update', function(data) {
-            myPosition = data.position;
-            updateBoard();
-        });
-
-        socket.on('distance_update', function(data) {
-            const distance = data.distance;
-            updateStatus(distance);
-        });
-
-        socket.on('request_position', function(data) {
-            // Only respond if we're the other player
-            if (data.from_player !== playerType && myPosition) {
-                let positions = {};
-                if (playerType === 'hider') {
-                    positions.hider_pos = myPosition;
-                    positions.seeker_pos = data.position;
-                } else {
-                    positions.hider_pos = data.position;
-                    positions.seeker_pos = myPosition;
-                }
-                socket.emit('position_response', positions);
-            }
-        });
-
-        document.querySelectorAll('.cell').forEach(cell => {
-            cell.addEventListener('click', function() {
-                if (!gameState) return;
-                
-                // During placement phase, check if it's this player's turn to place
-                if (gameState.phase === 'placement') {
-                    if (playerType === 'hider' && myPosition) return; // Hider already placed
-                    if (playerType === 'seeker' && gameState.current_turn !== 'seeker') return; // Not seeker's turn yet
-                    if (playerType === 'seeker' && myPosition) return; // Seeker already placed
-                } else if (gameState.current_turn !== playerType) {
-                    return; // Not this player's turn during movement phase
+        class HideAndSeekGame:
+            def __init__(self):
+                self.player_type = js.document.getElementById("player_type").textContent.strip().lower()
+                self.status_element = js.document.getElementById("gameStatus")
+                self.my_position = None
+                self.game_state = {
+                    'phase': 'placement',
+                    'current_turn': 'hider'
                 }
 
-                const x = parseInt(this.dataset.x);
-                const y = parseInt(this.dataset.y);
-                const position = { x, y };
+                # Initialize the game
+                self.create_board()
+                self.init_socket()
 
-                if (gameState.phase === 'placement') {
-                    logMove(position, playerType === 'hider' ? 'Hider' : 'Seeker');
-                    socket.emit('move', { position, player_type: playerType });
-                } else {
-                    if (!myPosition) return;
-                    if (!isValidMove(myPosition.x, myPosition.y, x, y)) {
-                        console.log('Invalid move attempted');
-                        return;
-                    }
-                    
-                    logMove(position, playerType === 'hider' ? 'Hider' : 'Seeker', myPosition);
-                    socket.emit('move', { position, player_type: playerType });
-                }
-            });
-        });
+            def init_socket(self):
+                """Initialize the Socket.IO client connection."""
+                self.sio = js.io(js.location.origin)
+
+                # Register event handlers
+                self.sio.on("game_state_update", create_proxy(self.on_game_state_update))
+                self.sio.on("position_update", create_proxy(self.on_position_update))
+                self.sio.on("distance_update", create_proxy(self.on_distance_update))
+
+                print("Connecting to server...")
+                self.sio.emit("join", {"player_type": self.player_type})
+
+            def create_board(self):
+                """Create the game board with clickable cells."""
+                game_board = js.document.getElementById("gameBoard")
+                for y in range(6):
+                    for x in range(6):
+                        cell = js.document.createElement("div")
+                        cell.className = "cell"
+                        cell.id = f"cell_{x}_{y}"
+                        cell.addEventListener("click", create_proxy(lambda event: self.on_cell_click(event)))
+                        game_board.appendChild(cell)
+
+            def on_cell_click(self, event):
+                """Handle cell clicks for position placement or movement."""
+                cell = event.target
+                coords = cell.id.split('_')[1:]
+                x, y = int(coords[0]), int(coords[1])
+
+                if self.game_state["phase"] == "placement":
+                    if not self.my_position:
+                        self.my_position = {"x": x, "y": y}
+                        self.highlight_position(x, y)
+                        self.sio.emit("move", {"player_type": self.player_type, "position": self.my_position})
+                        self.update_status("Position set. Waiting for opponent.")
+                elif self.game_state["phase"] == "movement":
+                    if self.game_state["current_turn"] != self.player_type:
+                        self.update_status("Not your turn!")
+                        return
+
+                    if not self.is_valid_move(self.my_position["x"], self.my_position["y"], x, y):
+                        self.update_status("Invalid move!")
+                        return
+
+                    self.my_position = {"x": x, "y": y}
+                    self.highlight_position(x, y)
+                    self.sio.emit("move", {"player_type": self.player_type, "position": self.my_position})
+
+            def is_valid_move(self, current_x, current_y, new_x, new_y):
+                """Check if the move is valid."""
+                return (abs(new_x - current_x) == 1 and new_y == current_y) or \
+                       (abs(new_y - current_y) == 1 and new_x == current_x)
+
+            def on_game_state_update(self, state):
+                """Handle updates to the game state."""
+                self.game_state = json.loads(state) if isinstance(state, str) else state
+
+                # Debug: Log game state
+                print(f"[DEBUG] Game state updated: {self.game_state}")
+
+                if not self.game_state.get("hider_connected") or not self.game_state.get("seeker_connected"):
+                    self.update_status("Waiting for both players...")
+                    return
+
+                if self.game_state["phase"] == "placement":
+                    if not self.my_position:
+                        self.update_status("Choose your starting position!")
+                    else:
+                        self.update_status("Position set. Waiting for opponent.")
+                elif self.game_state["phase"] == "movement":
+                    if self.game_state["current_turn"] == self.player_type:
+                        self.update_status("Your turn to move!")
+                    else:
+                        self.update_status("Waiting for opponent to move...")
+       
+            def on_position_update(self, data):
+                """Update the player's position when receiving new data."""
+                data = json.loads(data) if isinstance(data, str) else data
+                self.my_position = data.get("position")
+
+            def highlight_position(self, x, y):
+                """Highlight the current player's position."""
+                cell = js.document.getElementById(f"cell_{x}_{y}")
+                if cell:
+                    class_name = "hider" if self.player_type == "hider" else "seeker"
+                    cell.classList.add(class_name)
+
+            def on_distance_update(self, data):
+                """Handle distance updates."""
+                data = json.loads(data) if isinstance(data, str) else data
+                distance = data.get("distance")
+                if distance is not None:
+                    self.update_status(f"Distance to opponent: {distance} squares")
+
+            def update_status(self, message):
+                """Update the game status."""
+                self.status_element.textContent = message
+
+        GAME = HideAndSeekGame()
     </script>
 </body>
-</html> 
+</html>
