@@ -27,8 +27,8 @@ csp = {
         'https://pyscript.net',
         'https://cdn.socket.io',
         'https://cdn.jsdelivr.net',
-        "'unsafe-inline'",  # ✅ Allow inline scripts
-        "'unsafe-eval'"  # ✅ Allow PyScript execution
+        "'unsafe-inline'",  # 
+        "'unsafe-eval'" 
     ],
     'style-src': [
         "'self'",
@@ -40,7 +40,7 @@ csp = {
         "'unsafe-inline'",
         'https://pyscript.net'
     ],
-    'img-src': ["'self'", "data:"],  # ✅ Allow images & base64 images
+    'img-src': ["'self'", "data:"], 
     'connect-src': [
         "'self'",
         'ws://localhost:5001', 'wss://localhost:5001',
