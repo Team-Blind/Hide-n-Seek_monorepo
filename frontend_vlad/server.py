@@ -3,14 +3,6 @@ from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit
 from flask_talisman import Talisman
 import math
-import logging
-
-# Set up logging configuration
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", transports=['websocket', 'polling'])
@@ -79,32 +71,33 @@ def join_game(player_type):
 
 @socketio.on('connect')
 def handle_connect():
-    logger.debug('Client connected')
+    print("[DEBUG] Client connected")
 
 @socketio.on('join')
 def handle_join(data):
     """Ensure data is properly parsed as a dictionary"""
-    logger.debug(f"Received join event with raw data: {data}")
+    
 
     if isinstance(data, str):  # ✅ Convert JSON string to dictionary if needed
         try:
             data = json.loads(data)
         except json.JSONDecodeError:
-            logger.error("[ERROR] Failed to parse JSON from join event.")
+            
             return emit("error", {"message": "Invalid JSON format"})
 
     if not isinstance(data, dict) or "player_type" not in data:
-        logger.error("[ERROR] Missing 'player_type' key in received data.")
+        
         return emit("error", {"message": "Missing player_type"})
 
     player_type = data["player_type"]
 
     if player_type not in ["hider", "seeker"]:
-        logger.error(f"[ERROR] Invalid player type received: {player_type}")
+        
+        
         return emit("error", {"message": "Invalid player type"})
 
     game_state[f"{player_type}_connected"] = True
-    logger.debug(f"{player_type} connected. Current game state: {game_state}")
+    
 
     emit("game_state_update", {
         "phase": game_state["phase"],
@@ -113,39 +106,36 @@ def handle_join(data):
         "seeker_connected": game_state["seeker_connected"]
     }, broadcast=True)
 
-
 @socketio.on('move')
 def handle_move(data):
-    logger.debug(f"[DEBUG] Received move data: {data}")
+    """Handle player moves and transition game state when needed."""
+    print(f"[DEBUG] Received move data: {data}")
 
-    player_type = data['player_type']
-    position = data['position']
+    player_type = data["player_type"]
+    position = data["position"]
 
-    logger.debug(f"[DEBUG] {player_type} moved to {position}")
+    # ✅ Ensure positions dictionary exists
+    if "positions" not in game_state:
+        game_state["positions"] = {}
 
-    if game_state['phase'] == 'placement':
-        game_state['positions'][player_type] = position
+    # ✅ Store player's new position
+    game_state["positions"][player_type] = position
+    print(f"[DEBUG] {player_type} moved to {position}")
 
-        logger.debug(f"[DEBUG] {player_type} position set. Current positions: {game_state['positions']}")
+    # ✅ Check if both players have placed their positions
+    if "hider" in game_state["positions"] and "seeker" in game_state["positions"]:
+        game_state["phase"] = "movement"
+        game_state["current_turn"] = "hider"
+        print("[DEBUG] Transitioning to movement phase.")
 
-        if 'hider' in game_state['positions'] and 'seeker' in game_state['positions']:
-            game_state['phase'] = 'movement'
-            game_state['current_turn'] = 'hider'
-
-            logger.debug("[DEBUG] Transitioning to movement phase.")
-
-            emit('game_state_update', {
-                'phase': game_state['phase'],
-                'current_turn': game_state['current_turn'],
-                'hider_connected': game_state['hider_connected'],
-                'seeker_connected': game_state['seeker_connected']
-            }, broadcast=True)
-        else:
-            emit('game_state_update', {
-                'phase': game_state['phase'],
-                'current_turn': game_state['current_turn'],
-                'message': 'Position set. Waiting for opponent.'
-            })
+    # ✅ Send **full game state** including connections
+    emit("game_state_update", {
+        "phase": game_state["phase"],
+        "current_turn": game_state["current_turn"],
+        "positions": game_state["positions"],
+        "hider_connected": game_state["hider_connected"],
+        "seeker_connected": game_state["seeker_connected"],
+    }, broadcast=True)
 
 @socketio.on('position_response')
 def handle_position_response(data):

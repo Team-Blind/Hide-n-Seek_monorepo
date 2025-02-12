@@ -72,11 +72,43 @@ class HideAndSeekGame:
                 self.sio.emit("move", json.dumps({"player_type": self.player_type, "position": self.my_position}))
                 self.update_status("Position set. Waiting for opponent.")
 
+        elif self.game_state["phase"] == "movement":
+            # ✅ Ensure it's the player's turn before moving
+            if self.game_state["current_turn"] != self.player_type:
+                print("[DEBUG] Not your turn, ignoring move.")
+                self.update_status("Not your turn!")
+                return
+
+            if not self.is_valid_move(self.my_position["x"], self.my_position["y"], x, y):
+                print("[DEBUG] Invalid move attempt!")
+                self.update_status("Invalid move!")
+                return
+
+            print(f"[DEBUG] {self.player_type} moving to ({x}, {y})")
+
+            # ✅ Remove previous highlight before moving
+            self.dehighlight_position(self.my_position["x"], self.my_position["y"])
+
+            # ✅ Update player position and notify the server
+            self.my_position = {"x": x, "y": y}
+            self.sio.emit("move", json.dumps({"player_type": self.player_type, "position": self.my_position}))
+
+            # ✅ Highlight new position
+            self.highlight_position(x, y)
+
+            # ✅ Switch turn after move
+            self.game_state["current_turn"] = "seeker" if self.player_type == "hider" else "hider"
+            self.update_status("Waiting for opponent to move...")
+
+
     def on_game_state_update(self, state):
         """Handle updates to the game state safely."""
         print(f"[DEBUG] Received game state update: {state}")
 
-        # ✅ Ensure state is always a Python dictionary
+        # ✅ Convert JsProxy to Python dictionary if necessary
+        if hasattr(state, "to_py"):
+            state = state.to_py()
+
         if isinstance(state, str):
             try:
                 state = json.loads(state)
@@ -84,42 +116,81 @@ class HideAndSeekGame:
                 print("[ERROR] Failed to parse JSON from game state update.")
                 return
 
-        elif hasattr(state, "to_py"):  # ✅ Convert JavaScript proxy to Python dict
-            state = state.to_py()
-
-        if not isinstance(state, dict):  # ✅ Ensure it's always a dictionary
+        if not isinstance(state, dict):
             print("[ERROR] Invalid game state format received.")
             return
 
-        self.game_state = state
-
+        self.game_state = state  # ✅ Store updated game state
         print(f"[DEBUG] Updated game state: {self.game_state}")
 
-        # ✅ Use `.get()` safely with default values
-        if not self.game_state.get("hider_connected", False) or not self.game_state.get("seeker_connected", False):
-            self.update_status("Waiting for both players...")
-            return
+        # ✅ Ensure both players are recognized correctly
+        hider_ready = self.game_state.get("hider_connected", False)
+        seeker_ready = self.game_state.get("seeker_connected", False)
 
-        if self.game_state.get("phase") == "placement":
+        if not hider_ready or not seeker_ready:
+            print("[DEBUG] Not all players are connected yet.")
+            self.update_status("Waiting for both players...")
+            return  # ✅ Prevents further execution if players aren't ready
+
+        # ✅ Check the game phase
+        phase = self.game_state.get("phase", "placement")
+        current_turn = self.game_state.get("current_turn", "hider")
+
+        if phase == "placement":
             if not self.my_position:
                 self.update_status("Choose your starting position!")
             else:
                 self.update_status("Position set. Waiting for opponent.")
-        elif self.game_state.get("phase") == "movement":
-            if self.game_state.get("current_turn") == self.player_type:
+
+        elif phase == "movement":
+            if current_turn == self.player_type:
                 self.update_status("Your turn to move!")
             else:
-                self.update_status("Waiting for opponent to move!")
+                self.update_status("Waiting for opponent to move...")
 
+        # ✅ Update player positions
+        positions = self.game_state.get("positions", {})
+        for player, pos in positions.items():
+            self.highlight_position(pos["x"], pos["y"], player)
 
     def on_position_update(self, data):
-        """Handle position updates from the server."""
+        """Handle position updates from the server and update UI."""
         if isinstance(data, str):
-            data = json.loads(data)  # Convert JSON string to dictionary
+            data = json.loads(data)
+        
+        # ✅ Convert JsProxy to Python dict if needed
+        elif hasattr(data, "to_py"):
+            data = data.to_py()
 
-        if 'position' in data and data["position"]:
-            self.my_position = data["position"]
-            self.highlight_position(self.my_position["x"], self.my_position["y"])
+        if "player_type" not in data or "position" not in data:
+            print("[ERROR] Invalid position update received.")
+            return
+
+        player_type = data["player_type"]
+        position = data["position"]
+
+        print(f"[DEBUG] Updating {player_type} position to {position}")
+
+        # ✅ Update the position of the correct player
+        self.highlight_position(position["x"], position["y"], player_type)
+
+
+    def highlight_position(self, x, y, player_type=None):
+        """Highlight the player's position on the board."""
+        cell = document.getElementById(f"cell_{x}_{y}")
+        if cell:
+            # ✅ Ensure correct player type is used
+            if player_type is None:
+                player_type = self.player_type
+            class_name = "hider" if player_type == "hider" else "seeker"
+            cell.classList.add(class_name)
+
+    def dehighlight_position(self, x, y):
+        """Remove the highlight from the previous position."""
+        cell = document.getElementById(f"cell_{x}_{y}")
+        if cell:
+            cell.classList.remove("hider", "seeker")
+
 
     def on_distance_update(self, data):
         """Handle distance updates from the server."""
@@ -133,15 +204,6 @@ class HideAndSeekGame:
         """Update the game status."""
         self.status_element.textContent = message
 
-    def highlight_position(self, x, y):
-        """Highlight the player's position on the board."""
-        for cell in document.getElementsByClassName("cell"):
-            cell.classList.remove("hider", "seeker")
-
-        cell = document.getElementById(f"cell_{x}_{y}")
-        if cell:
-            class_name = "hider" if self.player_type == "hider" else "seeker"
-            cell.classList.add(class_name)
 
 # ✅ Initialize the game
 GAME = HideAndSeekGame()
