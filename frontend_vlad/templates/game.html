@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
     <title>Hide and Seek Game</title>
 
+    <!-- PyScript & Socket.IO -->
     <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
     <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
     <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
@@ -90,140 +91,50 @@
     </style>
 </head>
 <body>
-    <div class="container mt-5">
-        <h1 class="text-center mb-4">Hide and Seek Game - You are the <strong id="player_type">{{ player_type|title }}</strong></h1>
+    <!-- Loading Screen -->
+    <dialog id="loading">
+        <h1>Loading game...</h1>
+    </dialog>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            window.socket = io(window.location.origin, {
+                transports: ["websocket", "polling"]
+            });
+            console.log("[DEBUG] Socket.IO initialized in JS:", window.socket);
+        });
+    </script>
+    
+    
+    <script type="module">
+        document.addEventListener("DOMContentLoaded", () => {
+            const loading = document.getElementById('loading');
+            addEventListener('py:ready', () => loading.close());
+            loading.showModal();
+        });
+    </script>
+
+    <div class="container">
+        <h1 class="text-center">Hide and Seek Game - You are the <strong id="player_type">{{ player_type|title }}</strong></h1>
+
         <div class="game-container">
             <img src="{{ url_for('static', filename='images/left_image.png') }}" 
-                 alt="Left Player" 
-                 class="side-image">
+                 alt="Hider" class="side-image">
+            
             <div id="gameBoard" class="game-grid"></div>
+
             <img src="{{ url_for('static', filename='images/right_image.png') }}" 
-                 alt="Right Player" 
-                 class="side-image">
+                 alt="Seeker" class="side-image">
         </div>
-        <div class="text-center">
-            <p id="gameStatus" class="mb-3">Waiting for both players...</p>
-        </div>
+
+        <p id="gameStatus">Waiting for both players...</p>
     </div>
 
-    <script type="py">
-        import js
-        import json
-        from pyodide.ffi import create_proxy
+    <script type="py" src="../static/game.py"></script>
 
-        class HideAndSeekGame:
-            def __init__(self):
-                self.player_type = js.document.getElementById("player_type").textContent.strip().lower()
-                self.status_element = js.document.getElementById("gameStatus")
-                self.my_position = None
-                self.game_state = {
-                    'phase': 'placement',
-                    'current_turn': 'hider'
-                }
-
-                # Initialize the game
-                self.create_board()
-                self.init_socket()
-
-            def init_socket(self):
-                """Initialize the Socket.IO client connection."""
-                self.sio = js.io(js.location.origin)
-
-                # Register event handlers
-                self.sio.on("game_state_update", create_proxy(self.on_game_state_update))
-                self.sio.on("position_update", create_proxy(self.on_position_update))
-                self.sio.on("distance_update", create_proxy(self.on_distance_update))
-
-                print("Connecting to server...")
-                self.sio.emit("join", {"player_type": self.player_type})
-
-            def create_board(self):
-                """Create the game board with clickable cells."""
-                game_board = js.document.getElementById("gameBoard")
-                for y in range(6):
-                    for x in range(6):
-                        cell = js.document.createElement("div")
-                        cell.className = "cell"
-                        cell.id = f"cell_{x}_{y}"
-                        cell.addEventListener("click", create_proxy(lambda event: self.on_cell_click(event)))
-                        game_board.appendChild(cell)
-
-            def on_cell_click(self, event):
-                """Handle cell clicks for position placement or movement."""
-                cell = event.target
-                coords = cell.id.split('_')[1:]
-                x, y = int(coords[0]), int(coords[1])
-
-                if self.game_state["phase"] == "placement":
-                    if not self.my_position:
-                        self.my_position = {"x": x, "y": y}
-                        self.highlight_position(x, y)
-                        self.sio.emit("move", {"player_type": self.player_type, "position": self.my_position})
-                        self.update_status("Position set. Waiting for opponent.")
-                elif self.game_state["phase"] == "movement":
-                    if self.game_state["current_turn"] != self.player_type:
-                        self.update_status("Not your turn!")
-                        return
-
-                    if not self.is_valid_move(self.my_position["x"], self.my_position["y"], x, y):
-                        self.update_status("Invalid move!")
-                        return
-
-                    self.my_position = {"x": x, "y": y}
-                    self.highlight_position(x, y)
-                    self.sio.emit("move", {"player_type": self.player_type, "position": self.my_position})
-
-            def is_valid_move(self, current_x, current_y, new_x, new_y):
-                """Check if the move is valid."""
-                return (abs(new_x - current_x) == 1 and new_y == current_y) or \
-                       (abs(new_y - current_y) == 1 and new_x == current_x)
-
-            def on_game_state_update(self, state):
-                """Handle updates to the game state."""
-                self.game_state = json.loads(state) if isinstance(state, str) else state
-
-                # Debug: Log game state
-                print(f"[DEBUG] Game state updated: {self.game_state}")
-
-                if not self.game_state.get("hider_connected") or not self.game_state.get("seeker_connected"):
-                    self.update_status("Waiting for both players...")
-                    return
-
-                if self.game_state["phase"] == "placement":
-                    if not self.my_position:
-                        self.update_status("Choose your starting position!")
-                    else:
-                        self.update_status("Position set. Waiting for opponent.")
-                elif self.game_state["phase"] == "movement":
-                    if self.game_state["current_turn"] == self.player_type:
-                        self.update_status("Your turn to move!")
-                    else:
-                        self.update_status("Waiting for opponent to move...")
-       
-            def on_position_update(self, data):
-                """Update the player's position when receiving new data."""
-                data = json.loads(data) if isinstance(data, str) else data
-                self.my_position = data.get("position")
-
-            def highlight_position(self, x, y):
-                """Highlight the current player's position."""
-                cell = js.document.getElementById(f"cell_{x}_{y}")
-                if cell:
-                    class_name = "hider" if self.player_type == "hider" else "seeker"
-                    cell.classList.add(class_name)
-
-            def on_distance_update(self, data):
-                """Handle distance updates."""
-                data = json.loads(data) if isinstance(data, str) else data
-                distance = data.get("distance")
-                if distance is not None:
-                    self.update_status(f"Distance to opponent: {distance} squares")
-
-            def update_status(self, message):
-                """Update the game status."""
-                self.status_element.textContent = message
-
-        GAME = HideAndSeekGame()
-    </script>
+    <!-- PyScript Console for Debugging -->
+    <div id="terminal">
+        <script id="console" type="py" terminal></script>
+    </div>
 </body>
 </html>

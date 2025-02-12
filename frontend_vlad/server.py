@@ -1,9 +1,58 @@
+import json
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit
+from flask_talisman import Talisman
 import math
+import logging
+
+# Set up logging configuration
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", transports=['websocket', 'polling'])
+
+csp = {
+    'default-src': [
+        "'self'",
+        'https://pyscript.net',
+        'https://cdn.socket.io',
+        'https://cdn.jsdelivr.net'
+    ],
+    'script-src': [
+        "'self'",
+        'https://pyscript.net',
+        'https://cdn.socket.io',
+        'https://cdn.jsdelivr.net',
+        "'unsafe-inline'",  # ✅ Allow inline scripts
+        "'unsafe-eval'"  # ✅ Allow PyScript execution
+    ],
+    'style-src': [
+        "'self'",
+        "'unsafe-inline'",
+        'https://pyscript.net'
+    ],
+    'style-src-elem': [
+        "'self'",
+        "'unsafe-inline'",
+        'https://pyscript.net'
+    ],
+    'img-src': ["'self'", "data:"],  # ✅ Allow images & base64 images
+    'connect-src': [
+        "'self'",
+        'ws://localhost:5001', 'wss://localhost:5001',
+        'ws://127.0.0.1:5001', 'wss://127.0.0.1:5001',
+        'https://cdn.jsdelivr.net',
+        'https://cdn.jsdelivr.net/pyodide/'
+    ]
+}
+
+
+Talisman(app, content_security_policy=csp)
+
 
 game_state = {
     'hider_connected': False,
@@ -30,87 +79,76 @@ def join_game(player_type):
 
 @socketio.on('connect')
 def handle_connect():
-    print('Client connected')
+    logger.debug('Client connected')
 
 @socketio.on('join')
 def handle_join(data):
-    player_type = data['player_type']
-    game_state[f'{player_type}_connected'] = True
+    """Ensure data is properly parsed as a dictionary"""
+    logger.debug(f"Received join event with raw data: {data}")
 
-    # Debug: Log connections
-    print(f"[DEBUG] {player_type} connected. Current game state: {game_state}")
+    if isinstance(data, str):  # ✅ Convert JSON string to dictionary if needed
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            logger.error("[ERROR] Failed to parse JSON from join event.")
+            return emit("error", {"message": "Invalid JSON format"})
 
-    # Send updated game state to all players
-    emit('game_state_update', {
-        'phase': game_state['phase'],
-        'current_turn': game_state['current_turn'],
-        'hider_connected': game_state['hider_connected'],
-        'seeker_connected': game_state['seeker_connected']
+    if not isinstance(data, dict) or "player_type" not in data:
+        logger.error("[ERROR] Missing 'player_type' key in received data.")
+        return emit("error", {"message": "Missing player_type"})
+
+    player_type = data["player_type"]
+
+    if player_type not in ["hider", "seeker"]:
+        logger.error(f"[ERROR] Invalid player type received: {player_type}")
+        return emit("error", {"message": "Invalid player type"})
+
+    game_state[f"{player_type}_connected"] = True
+    logger.debug(f"{player_type} connected. Current game state: {game_state}")
+
+    emit("game_state_update", {
+        "phase": game_state["phase"],
+        "current_turn": game_state["current_turn"],
+        "hider_connected": game_state["hider_connected"],
+        "seeker_connected": game_state["seeker_connected"]
     }, broadcast=True)
+
 
 @socketio.on('move')
 def handle_move(data):
+    logger.debug(f"[DEBUG] Received move data: {data}")
+
     player_type = data['player_type']
     position = data['position']
 
-    # Debug: Log move event
-    print(f"[DEBUG] {player_type} moved to {position}")
+    logger.debug(f"[DEBUG] {player_type} moved to {position}")
 
-    # Handle placement phase
     if game_state['phase'] == 'placement':
-        # Store player's position
         game_state['positions'][player_type] = position
 
-        # Debug: Log placement update
-        print(f"[DEBUG] {player_type} position set. Current positions: {game_state['positions']}")
+        logger.debug(f"[DEBUG] {player_type} position set. Current positions: {game_state['positions']}")
 
-        # Send the position back to the player
-        emit('position_update', {'position': position}, to=request.sid)
-
-        # Check if both players have placed their positions
         if 'hider' in game_state['positions'] and 'seeker' in game_state['positions']:
             game_state['phase'] = 'movement'
-            game_state['current_turn'] = 'hider'  # Hider starts the movement phase
+            game_state['current_turn'] = 'hider'
 
-            # Debug: Log phase transition
-            print("[DEBUG] Both players placed positions. Transitioning to movement phase.")
+            logger.debug("[DEBUG] Transitioning to movement phase.")
 
-            # Notify all players of the updated game state
             emit('game_state_update', {
                 'phase': game_state['phase'],
-                'current_turn': game_state['current_turn']
+                'current_turn': game_state['current_turn'],
+                'hider_connected': game_state['hider_connected'],
+                'seeker_connected': game_state['seeker_connected']
             }, broadcast=True)
         else:
-            # Notify the player that their position is set
             emit('game_state_update', {
                 'phase': game_state['phase'],
                 'current_turn': game_state['current_turn'],
                 'message': 'Position set. Waiting for opponent.'
             })
-        return
-
-    # Handle movement phase
-    if game_state['phase'] == 'movement':
-        if game_state['current_turn'] != player_type:
-            emit('invalid_move', {'message': 'Not your turn!'}, to=request.sid)
-            return
-
-        # Update the position and change the turn
-        game_state['positions'][player_type] = position
-        game_state['current_turn'] = 'seeker' if player_type == 'hider' else 'hider'
-
-        # Request opponent's position to calculate the distance
-        emit('request_position', {'from_player': player_type, 'position': position}, broadcast=True)
-
-        # Notify players of the updated game state
-        emit('game_state_update', {
-            'phase': game_state['phase'],
-            'current_turn': game_state['current_turn']
-        }, broadcast=True)
 
 @socketio.on('position_response')
 def handle_position_response(data):
-    # Calculate and broadcast distance when both positions are available
     hider_pos = game_state['positions'].get('hider')
     seeker_pos = game_state['positions'].get('seeker')
 
