@@ -12,14 +12,12 @@ class HideAndSeekGame:
         self.my_position = None
         self.game_state = {"phase": "placement", "current_turn": "hider"}
         
-        # ✅ Store event handler proxies to prevent them from being destroyed
         self.on_game_state_update_proxy = create_proxy(self.on_game_state_update)
         self.on_position_update_proxy = create_proxy(self.on_position_update)
         self.on_distance_update_proxy = create_proxy(self.on_distance_update)
 
         self.create_board()
 
-        # ✅ Wait for the WebSocket connection
         asyncio.ensure_future(self.wait_for_socket())
 
     async def wait_for_socket(self):
@@ -28,10 +26,9 @@ class HideAndSeekGame:
             print("[DEBUG] Waiting for window.socket to be initialized...")
             await asyncio.sleep(0.1)
         
-        self.sio = js.window.socket  # ✅ Access JavaScript Socket.IO instance
+        self.sio = js.window.socket 
         print("[DEBUG] Socket.IO is ready, sending join event.")
 
-        # ✅ Use proxies for event listeners
         self.sio.on("game_state_update", self.on_game_state_update_proxy)
         self.sio.on("position_update", self.on_position_update_proxy)
         self.sio.on("distance_update", self.on_distance_update_proxy)
@@ -54,7 +51,6 @@ class HideAndSeekGame:
                 cell.setAttribute("data-x", str(x))
                 cell.setAttribute("data-y", str(y))
 
-                # ✅ Fix event listener issues by using `create_proxy`
                 cell.addEventListener("click", create_proxy(self.on_cell_click))
                 game_board.appendChild(cell)
 
@@ -69,11 +65,10 @@ class HideAndSeekGame:
             if not self.my_position:
                 self.my_position = {"x": x, "y": y}
                 self.highlight_position(x, y)
-                self.sio.emit("move", json.dumps({"player_type": self.player_type, "position": self.my_position}))
+                self.sio.emit("placed", json.dumps({"player_type": self.player_type, "position": self.my_position}))
                 self.update_status("Position set. Waiting for opponent.")
 
         elif self.game_state["phase"] == "movement":
-            # ✅ Ensure it's the player's turn before moving
             if self.game_state["current_turn"] != self.player_type:
                 print("[DEBUG] Not your turn, ignoring move.")
                 self.update_status("Not your turn!")
@@ -86,17 +81,13 @@ class HideAndSeekGame:
 
             print(f"[DEBUG] {self.player_type} moving to ({x}, {y})")
 
-            # ✅ Remove previous highlight before moving
             self.dehighlight_position(self.my_position["x"], self.my_position["y"])
 
-            # ✅ Update player position and notify the server
             self.my_position = {"x": x, "y": y}
             self.sio.emit("move", json.dumps({"player_type": self.player_type, "position": self.my_position}))
 
-            # ✅ Highlight new position
             self.highlight_position(x, y)
 
-            # ✅ Switch turn after move
             self.game_state["current_turn"] = "seeker" if self.player_type == "hider" else "hider"
             self.update_status("Waiting for opponent to move...")
 
@@ -105,7 +96,6 @@ class HideAndSeekGame:
         """Handle updates to the game state safely."""
         print(f"[DEBUG] Received game state update: {state}")
 
-        # ✅ Convert JsProxy to Python dictionary if necessary
         if hasattr(state, "to_py"):
             state = state.to_py()
 
@@ -120,19 +110,17 @@ class HideAndSeekGame:
             print("[ERROR] Invalid game state format received.")
             return
 
-        self.game_state = state  # ✅ Store updated game state
+        self.game_state = state 
         print(f"[DEBUG] Updated game state: {self.game_state}")
 
-        # ✅ Ensure both players are recognized correctly
         hider_ready = self.game_state.get("hider_connected", False)
         seeker_ready = self.game_state.get("seeker_connected", False)
 
         if not hider_ready or not seeker_ready:
             print("[DEBUG] Not all players are connected yet.")
             self.update_status("Waiting for both players...")
-            return  # ✅ Prevents further execution if players aren't ready
+            return  
 
-        # ✅ Check the game phase
         phase = self.game_state.get("phase", "placement")
         current_turn = self.game_state.get("current_turn", "hider")
 
@@ -148,17 +136,16 @@ class HideAndSeekGame:
             else:
                 self.update_status("Waiting for opponent to move...")
 
-        # ✅ Update player positions
-        positions = self.game_state.get("positions", {})
-        for player, pos in positions.items():
-            self.highlight_position(pos["x"], pos["y"], player)
+        # positions = self.game_state.get("positions", {})
+        # if self.player_type in positions:
+        #     pos = positions[self.player_type]
+        #     self.highlight_position(pos["x"], pos["y"])
 
     def on_position_update(self, data):
         """Handle position updates from the server and update UI."""
         if isinstance(data, str):
             data = json.loads(data)
         
-        # ✅ Convert JsProxy to Python dict if needed
         elif hasattr(data, "to_py"):
             data = data.to_py()
 
@@ -171,15 +158,13 @@ class HideAndSeekGame:
 
         print(f"[DEBUG] Updating {player_type} position to {position}")
 
-        # ✅ Update the position of the correct player
-        self.highlight_position(position["x"], position["y"], player_type)
+        # self.highlight_position(position["x"], position["y"], player_type)
 
 
     def highlight_position(self, x, y, player_type=None):
         """Highlight the player's position on the board."""
         cell = document.getElementById(f"cell_{x}_{y}")
         if cell:
-            # ✅ Ensure correct player type is used
             if player_type is None:
                 player_type = self.player_type
             class_name = "hider" if player_type == "hider" else "seeker"
@@ -204,6 +189,9 @@ class HideAndSeekGame:
         """Update the game status."""
         self.status_element.textContent = message
 
+    def is_valid_move(self, current_x, current_y, new_x, new_y):
+        """Check if the move is valid (only horizontal or vertical by 1 step)."""
+        return (abs(new_x - current_x) == 1 and new_y == current_y) or \
+            (abs(new_y - current_y) == 1 and new_x == current_x)
 
-# ✅ Initialize the game
 GAME = HideAndSeekGame()

@@ -54,6 +54,7 @@ game_state = {
     'positions': {}
 }
 
+
 def calculate_distance(hider_pos, seeker_pos):
     dx = hider_pos['x'] - seeker_pos['x']
     dy = hider_pos['y'] - seeker_pos['y']
@@ -76,9 +77,7 @@ def handle_connect():
 @socketio.on('join')
 def handle_join(data):
     """Ensure data is properly parsed as a dictionary"""
-    
-
-    if isinstance(data, str):  # ✅ Convert JSON string to dictionary if needed
+    if isinstance(data, str):  
         try:
             data = json.loads(data)
         except json.JSONDecodeError:
@@ -92,8 +91,7 @@ def handle_join(data):
     player_type = data["player_type"]
 
     if player_type not in ["hider", "seeker"]:
-        
-        
+        print(f"[DEBUG] Invalid player type: {player_type}")
         return emit("error", {"message": "Invalid player type"})
 
     game_state[f"{player_type}_connected"] = True
@@ -106,36 +104,65 @@ def handle_join(data):
         "seeker_connected": game_state["seeker_connected"]
     }, broadcast=True)
 
+import json
+
+@socketio.on('placed')
+def handle_placed(data):
+    """Handle player moves and transition game state when needed."""
+    print(f"[DEBUG] Received placed data: {data}")
+
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            print("[ERROR] Received invalid JSON in 'placed' event")
+            return
+
+    if not isinstance(data, dict) or "player_type" not in data or "position" not in data:
+        print("[ERROR] Invalid placed data format.")
+        return
+
+    if game_state["phase"] != "placement":
+        print("[DEBUG] Not in placement phase, ignoring placed event.")
+        return
+
+    player_type = data["player_type"]
+    position = data["position"]
+
+    print(f"[DEBUG] {player_type} placed at {position}")
+
+    game_state["positions"][player_type] = position
+    if ('hider' in game_state['positions'] and 'seeker' in game_state['positions']):
+        game_state["phase"] = "movement"
+        print("[DEBUG] Transitioning to movement phase.")
+
+    emit('game_state_update', game_state, broadcast=True)
+
 @socketio.on('move')
 def handle_move(data):
     """Handle player moves and transition game state when needed."""
     print(f"[DEBUG] Received move data: {data}")
 
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            print("[ERROR] Received invalid JSON in 'move' event")
+            return
+
+    if not isinstance(data, dict) or "player_type" not in data or "position" not in data:
+        print("[ERROR] Invalid move data format.")
+        return
+
     player_type = data["player_type"]
     position = data["position"]
 
-    # ✅ Ensure positions dictionary exists
-    if "positions" not in game_state:
-        game_state["positions"] = {}
-
-    # ✅ Store player's new position
-    game_state["positions"][player_type] = position
     print(f"[DEBUG] {player_type} moved to {position}")
 
-    # ✅ Check if both players have placed their positions
-    if "hider" in game_state["positions"] and "seeker" in game_state["positions"]:
-        game_state["phase"] = "movement"
-        game_state["current_turn"] = "hider"
-        print("[DEBUG] Transitioning to movement phase.")
+    game_state["positions"][player_type] = position
+    game_state["current_turn"] = "seeker" if player_type == "hider" else "hider"
 
-    # ✅ Send **full game state** including connections
-    emit("game_state_update", {
-        "phase": game_state["phase"],
-        "current_turn": game_state["current_turn"],
-        "positions": game_state["positions"],
-        "hider_connected": game_state["hider_connected"],
-        "seeker_connected": game_state["seeker_connected"],
-    }, broadcast=True)
+    emit('game_state_update', game_state, broadcast=True)
 
 @socketio.on('position_response')
 def handle_position_response(data):
