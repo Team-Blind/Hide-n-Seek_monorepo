@@ -2,7 +2,7 @@ from pyscript import document
 import json
 import js
 import asyncio
-from pyodide.ffi import create_proxy  # ✅ Fixes event handler destruction
+from pyodide.ffi import create_proxy
 
 class HideAndSeekGame:
     def __init__(self):
@@ -11,11 +11,10 @@ class HideAndSeekGame:
         self.status_element = document.getElementById("gameStatus")
         self.my_position = None
         self.game_state = {"phase": "placement", "current_turn": "hider"}
+        self.distance = 0
         
         self.on_game_state_update_proxy = create_proxy(self.on_game_state_update)
-        self.on_position_update_proxy = create_proxy(self.on_position_update)
-        self.on_distance_update_proxy = create_proxy(self.on_distance_update)
-
+        self.on_game_end_proxy = create_proxy(self.on_game_end)
         self.create_board()
 
         asyncio.ensure_future(self.wait_for_socket())
@@ -30,9 +29,7 @@ class HideAndSeekGame:
         print("[DEBUG] Socket.IO is ready, sending join event.")
 
         self.sio.on("game_state_update", self.on_game_state_update_proxy)
-        self.sio.on("position_update", self.on_position_update_proxy)
-        self.sio.on("distance_update", self.on_distance_update_proxy)
-
+        self.sio.on("game_end", self.on_game_end_proxy)
         self.on_socket_connect()
 
     def on_socket_connect(self):
@@ -123,7 +120,9 @@ class HideAndSeekGame:
 
         phase = self.game_state.get("phase", "placement")
         current_turn = self.game_state.get("current_turn", "hider")
-
+        distance = self.game_state.get("distance", 0)
+        
+        self.distance = distance
         if phase == "placement":
             if not self.my_position:
                 self.update_status("Choose your starting position!")
@@ -132,34 +131,31 @@ class HideAndSeekGame:
 
         elif phase == "movement":
             if current_turn == self.player_type:
-                self.update_status("Your turn to move!")
+                self.update_status(f"Your turn to move! Distance to opponent: {distance} squares")
             else:
-                self.update_status("Waiting for opponent to move...")
+                self.update_status(f"Waiting for opponent to move... Distance to opponent: {distance} squares")
 
-        # positions = self.game_state.get("positions", {})
-        # if self.player_type in positions:
-        #     pos = positions[self.player_type]
-        #     self.highlight_position(pos["x"], pos["y"])
+    def on_game_end(self, state):
+        """Handle the end of the game."""
+        print(f"[DEBUG] Game ended with state: {state}")
 
-    def on_position_update(self, data):
-        """Handle position updates from the server and update UI."""
-        if isinstance(data, str):
-            data = json.loads(data)
-        
-        elif hasattr(data, "to_py"):
-            data = data.to_py()
+        if hasattr(state, "to_py"):
+            state = state.to_py()
 
-        if "player_type" not in data or "position" not in data:
-            print("[ERROR] Invalid position update received.")
+        if not isinstance(state, dict):
+            print("[ERROR] Invalid game state format received.")
             return
 
-        player_type = data["player_type"]
-        position = data["position"]
+        self.game_state = state
+        print(f"[DEBUG] Updated game state: {self.game_state}")
 
-        print(f"[DEBUG] Updating {player_type} position to {position}")
-
-        # self.highlight_position(position["x"], position["y"], player_type)
-
+        if self.game_state["phase"] == "end":
+            if self.player_type == "hider":
+                self.update_status("You win!")
+                js.window.location.href = "/game-over?result=lose"
+            else:
+                self.update_status("You lose!")
+                js.window.location.href = "/game-over?result=win"
 
     def highlight_position(self, x, y, player_type=None):
         """Highlight the player's position on the board."""
@@ -175,15 +171,6 @@ class HideAndSeekGame:
         cell = document.getElementById(f"cell_{x}_{y}")
         if cell:
             cell.classList.remove("hider", "seeker")
-
-
-    def on_distance_update(self, data):
-        """Handle distance updates from the server."""
-        if isinstance(data, str):
-            data = json.loads(data)  # Convert JSON string to dictionary
-
-        if 'distance' in data:
-            self.update_status(f"Distance to opponent: {data['distance']} squares")
 
     def update_status(self, message):
         """Update the game status."""

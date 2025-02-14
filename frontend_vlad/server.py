@@ -2,7 +2,6 @@ import json
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit
 from flask_talisman import Talisman
-import math
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", transports=['websocket', 'polling'])
@@ -42,26 +41,34 @@ csp = {
     ]
 }
 
-
 Talisman(app, content_security_policy=csp)
-
 
 game_state = {
     'hider_connected': False,
     'seeker_connected': False,
     'phase': 'placement',
     'current_turn': 'hider',
-    'positions': {}
+    'positions': {},
+    'distance': None
 }
 
-
 def calculate_distance(hider_pos, seeker_pos):
-    dx = hider_pos['x'] - seeker_pos['x']
-    dy = hider_pos['y'] - seeker_pos['y']
-    return math.ceil(math.sqrt(dx * dx + dy * dy))
+    dx = abs(hider_pos['x'] - seeker_pos['x'])
+    dy = abs(hider_pos['y'] - seeker_pos['y'])
+    return dx + dy
 
 @app.route('/')
 def index():
+    # Reset game state to initial values
+    global game_state
+    game_state = {
+        "phase": "placement",
+        "positions": {},
+        "current_turn": "hider",
+        "distance": None,
+        "hider_connected": False,
+        "seeker_connected": False
+    }
     return render_template('index.html')
 
 @app.route('/join/<player_type>')
@@ -69,6 +76,11 @@ def join_game(player_type):
     if player_type not in ['hider', 'seeker']:
         return 'Invalid player type', 400
     return render_template('game.html', player_type=player_type)
+
+@app.route('/game-over')
+def game_over():
+    result = request.args.get('result')
+    return render_template('game_over.html', result=result)
 
 @socketio.on('connect')
 def handle_connect():
@@ -136,6 +148,9 @@ def handle_placed(data):
         game_state["phase"] = "movement"
         print("[DEBUG] Transitioning to movement phase.")
 
+    if game_state["phase"] == "movement":
+        game_state["distance"] = calculate_distance(game_state["positions"]["hider"], game_state["positions"]["seeker"])
+
     emit('game_state_update', game_state, broadcast=True)
 
 @socketio.on('move')
@@ -153,6 +168,10 @@ def handle_move(data):
     if not isinstance(data, dict) or "player_type" not in data or "position" not in data:
         print("[ERROR] Invalid move data format.")
         return
+    
+    if game_state["phase"] != "movement":
+        print("[DEBUG] Not in movement phase, ignoring move event.")
+        return
 
     player_type = data["player_type"]
     position = data["position"]
@@ -161,17 +180,16 @@ def handle_move(data):
 
     game_state["positions"][player_type] = position
     game_state["current_turn"] = "seeker" if player_type == "hider" else "hider"
+    game_state["distance"] = calculate_distance(game_state["positions"]["hider"], game_state["positions"]["seeker"])
 
-    emit('game_state_update', game_state, broadcast=True)
-
-@socketio.on('position_response')
-def handle_position_response(data):
-    hider_pos = game_state['positions'].get('hider')
-    seeker_pos = game_state['positions'].get('seeker')
-
-    if hider_pos and seeker_pos:
-        distance = calculate_distance(hider_pos, seeker_pos)
-        emit('distance_update', {'distance': distance}, broadcast=True)
+    print(f"[DEBUG] Distance: {game_state['distance']}")
+    if game_state["distance"] <= 1:
+        game_state["phase"] = "end"
+        print("[DEBUG] Transitioning to end phase.")
+        emit('game_end', game_state, broadcast=True)
+        print("[DEBUG] Game over.")
+    else:
+        emit('game_state_update', game_state, broadcast=True)
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5001, debug=True)
