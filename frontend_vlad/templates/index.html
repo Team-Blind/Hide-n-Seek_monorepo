@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hide and Seek Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f9f9f9;
+            color: #333;
+            text-align: center;
+            padding: 20px;
+            margin: 0;
+        }
+
+        h1 {
+            color: #444;
+            font-size: 2rem;
+            margin-bottom: 20px;
+        }
+
+        p {
+            font-size: 1.2rem;
+            margin-bottom: 30px;
+            color: #666;
+        }
+
+        .button-container {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+        }
+
+        .button {
+            padding: 12px 24px;
+            font-size: 1rem;
+            font-weight: bold;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: background-color 0.3s;
+        }
+
+        .button-hider {
+            background-color: #4caf50; /* Green for hider */
+        }
+
+        .button-hider:hover {
+            background-color: #388e3c;
+        }
+
+        .button-seeker {
+            background-color: #ff4d4d; /* Red for seeker */
+        }
+
+        .button-seeker:hover {
+            background-color: #cc0000;
+        }
+    </style>
+</head>
+<body>
+    <h1>Welcome to Hide and Seek</h1>
+    <p>Select your role to start the game:</p>
+
+    <div class="button-container">
+        <a href="/join/hider" class="button button-hider">Join as Hider</a>
+        <a href="/join/seeker" class="button button-seeker">Join as Seeker</a>
+    </div>
+</body>
+</html>
